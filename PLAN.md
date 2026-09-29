@@ -19,7 +19,7 @@ FinAI-Agent is an autonomous portfolio and investment research agent: it answers
 
 | Layer | Choice |
 | --- | --- |
-| Language / packaging | Python 3.12, uv, ruff, pytest |
+| Language / packaging | Python 3.13, uv, ruff, pytest |
 | Config | pydantic-settings, `.env` |
 | Filings | EdgarTools (SEC EDGAR) |
 | Embeddings | FastEmbed |
@@ -111,7 +111,7 @@ Goal: accounts, tools and an empty but correctly structured repo, so every later
 
 ### 0.2 Local tooling \[HUMAN\]
 
-- [ ] 0.2.1 Install Python 3.12, uv, Docker Desktop, git, VS Code.
+- [ ] 0.2.1 Install Python 3.13, uv, Docker Desktop, git, VS Code.
 - [ ] 0.2.2 Defer `kubectl`, `kind`, `terraform`, `awscli`, `helm` until the phase that needs each.
 
 **Done when:** `python --version`, `uv --version`, `docker --version` all succeed.
@@ -119,7 +119,7 @@ Goal: accounts, tools and an empty but correctly structured repo, so every later
 ### 0.3 Repo skeleton
 
 - [x] 0.3.1 Create folders from the target repo layout, each Python package with an `__init__.py`.
-- [ ] 0.3.2 Run `uv init`; set project name, Python 3.12 and `src/` layout in `pyproject.toml`.
+- [x] 0.3.2 Run `uv init`; set project name, Python 3.13 and `src/` layout in `pyproject.toml`.
 - [ ] 0.3.3 Add `.gitignore` covering `.env`, `data/`, `*.db`, `k8s/**/secret.yaml`, `.venv/`, `__pycache__/`.
 - [ ] 0.3.4 Add `.env.example` listing every variable name with placeholder values.
 - [ ] 0.3.5 Add pre-commit with ruff lint and ruff format hooks; run `pre-commit install`.
@@ -340,7 +340,7 @@ Goal: one immutable, non-root image runs the full stack on a local Kind cluster,
 ### 3.1 Multi-stage Dockerfile
 
 - [ ] 3.1.1 `.dockerignore`: `.env`, `data/`, `.git`, `tests/`, `.venv/`, caches.
-- [ ] 3.1.2 Builder stage on `python:3.12-slim`: copy `pyproject.toml` and lockfile first (layer cache), then `uv sync --frozen --no-dev` into a venv.
+- [ ] 3.1.2 Builder stage on `python:3.13-slim`: copy `pyproject.toml` and lockfile first (layer cache), then `uv sync --frozen --no-dev` into a venv.
 - [ ] 3.1.3 In the builder, pre-download FastEmbed and LLM Guard models to a fixed directory; point to it with env vars so runtime never downloads.
 - [ ] 3.1.4 Runtime stage: slim base; copy venv, models and `src/`; `useradd -u 10001 app`; `USER 10001`.
 - [ ] 3.1.5 Entrypoint: `uvicorn finai.api.main:app --host 0.0.0.0 --port 8000`, one worker (scale with pods).
