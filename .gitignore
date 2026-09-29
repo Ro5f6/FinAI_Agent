@@ -7,4 +7,29 @@ wheels/
 *.egg-info
 
 # Virtual environments
-.venv
+.venv/
+
+# Secrets and local config
+.env
+.env.*
+!.env.example
+
+# Local data and databases
+data/
+*.db
+*.sqlite
+*.sqlite3
+
+# Kubernetes secrets
+k8s/**/secret.yaml
+
+# Editor
+.vscode/
+.idea/
+.DS_Store
+
+# Test and tooling caches
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/

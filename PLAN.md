@@ -120,7 +120,7 @@ Goal: accounts, tools and an empty but correctly structured repo, so every later
 
 - [x] 0.3.1 Create folders from the target repo layout, each Python package with an `__init__.py`.
 - [x] 0.3.2 Run `uv init`; set project name, Python 3.13 and `src/` layout in `pyproject.toml`.
-- [ ] 0.3.3 Add `.gitignore` covering `.env`, `data/`, `*.db`, `k8s/**/secret.yaml`, `.venv/`, `__pycache__/`.
+- [x] 0.3.3 Add `.gitignore` covering `.env`, `data/`, `*.db`, `k8s/**/secret.yaml`, `.venv/`, `__pycache__/`.
 - [ ] 0.3.4 Add `.env.example` listing every variable name with placeholder values.
 - [ ] 0.3.5 Add pre-commit with ruff lint and ruff format hooks; run `pre-commit install`.
 - [ ] 0.3.6 Add a short `README.md` with the project one-liner and a "How to run locally" stub.
