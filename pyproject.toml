@@ -4,7 +4,9 @@ version = "0.1.0"
 description = "Autonomous portfolio and investment research agent over SEC 10-K filings and live market data"
 readme = "README.md"
 requires-python = ">=3.13,<3.14"
-dependencies = []
+dependencies = [
+    "pydantic-settings>=2.15.0",
+]
 
 [build-system]
 requires = ["hatchling==1.32.4"]
