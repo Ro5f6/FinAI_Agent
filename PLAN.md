@@ -131,8 +131,8 @@ Goal: accounts, tools and an empty but correctly structured repo, so every later
 
 - [x] 0.4.1 `uv add pydantic-settings`.
 - [x] 0.4.2 Write `finai/config/settings.py` with a `Settings` class: LLM key and model name, `QDRANT_URL`, `REDIS_URL`, `SEC_IDENTITY`, `EMBEDDING_MODEL`, `COLLECTION_NAME`, `MAX_AGENT_LOOPS`, tracing vars.
-- [ ] 0.4.3 Export a module-level `settings` singleton.
-- [ ] 0.4.4 Write `tests/test_settings.py` that loads settings from a temp env.
+- [x] 0.4.3 Export a module-level `settings` singleton.
+- [x] 0.4.4 Write `tests/test_settings.py` that loads settings from a temp env.
 
 **Done when:** `python -c "from finai.config import settings; print(settings.QDRANT_URL)"` prints the value from `.env`.
 
