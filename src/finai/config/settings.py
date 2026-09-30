@@ -51,7 +51,7 @@ class Settings(BaseSettings):
     # --- Agent state ---
     REDIS_URL: str = Field(
         default="redis://localhost:6379",
-        description="Redis Stack URL for the LangGraph checkpointer (needs RedisJSON + RediSearch).",
+        description="Redis URL for the LangGraph checkpointer. Needs JSON and Search, which are in Redis 8 core.",
     )
     MAX_AGENT_LOOPS: int = Field(
         default=6,

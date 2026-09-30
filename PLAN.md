@@ -24,7 +24,7 @@ FinAI-Agent is an autonomous portfolio and investment research agent: it answers
 | Filings | EdgarTools (SEC EDGAR) |
 | Embeddings | FastEmbed |
 | Vector DB (long-term memory) | Qdrant |
-| Agent state (short-term memory) | Redis Stack + langgraph-checkpoint-redis |
+| Agent state (short-term memory) | Redis 8 (JSON + Search in core) + langgraph-checkpoint-redis |
 | Agent framework | LangGraph + LangChain tools |
 | Market data | yfinance |
 | Observability | LangSmith or Langfuse |
@@ -73,7 +73,7 @@ finai-agent/
 ### Known gotchas (already handled in the tasks below)
 
 - FastEmbed's default model (`BAAI/bge-small-en-v1.5`) truncates input at 512 tokens, so chunk size must match the embedding model.
-- The LangGraph Redis checkpointer needs Redis Stack (RedisJSON + RediSearch), not plain Redis.
+- The LangGraph Redis checkpointer needs both RedisJSON and RediSearch: it stores each checkpoint as a JSON document and looks it up by `thread_id` through a search index. Redis 8 ships both in core, so the official `redis:8-alpine` is enough and `redis/redis-stack-server` is the legacy path. Plain `redis:7-alpine` has neither and fails late, at `ERR unknown command 'JSON.SET'`, long after `PING` returns `PONG`.
 - Qdrant and Redis must also be deployed in Kubernetes and EKS, not only in docker compose.
 - The prompt-injection scanner won't reliably catch off-topic requests; a separate topic check is needed.
 - Output guardrails can't validate a response while it is still streaming; v1 buffers, validates, then streams.
@@ -144,7 +144,7 @@ Goal: on a laptop, the agent ingests 10-K filings, pulls live prices, and answer
 
 - [ ] 1.1.1 Create `docker-compose.yml` at the repo root.
 - [ ] 1.1.2 Add `qdrant` service: pinned `qdrant/qdrant:v1.x` tag, ports 6333 (REST) and 6334 (gRPC), volume `./data/qdrant:/qdrant/storage`.
-- [ ] 1.1.3 Add `redis` service: `redis/redis-stack-server` (pinned tag), port 6379, named volume.
+- [ ] 1.1.3 Add `redis` service: `redis:8.10.2-alpine` (JSON and Search are in core as of Redis 8), port 6379, named volume.
 - [ ] 1.1.4 Add healthchecks to both services.
 - [ ] 1.1.5 Run `docker compose up -d` and `docker compose ps`.
 - [ ] 1.1.6 Open `http://localhost:6333/dashboard`; run `docker compose exec redis redis-cli ping` and expect `PONG`.
@@ -362,7 +362,7 @@ Goal: one immutable, non-root image runs the full stack on a local Kind cluster,
 #### Data services in-cluster
 
 - [ ] 3.2.5 Qdrant: StatefulSet + PVC + headless Service (or the official Helm chart).
-- [ ] 3.2.6 Redis Stack: StatefulSet + PVC + Service.
+- [ ] 3.2.6 Redis: StatefulSet + PVC + Service, same pinned `redis:8.10.2-alpine` image as compose.
 
 #### App manifests (Kustomize `k8s/base`)
 
@@ -434,7 +434,7 @@ Goal: `terraform apply` builds the VPC, EKS cluster, ECR repo and CI role from c
 
 - [ ] 4.2.8 `terraform apply` (15–20 min); `aws eks update-kubeconfig`; `kubectl get nodes`.
 - [ ] 4.2.9 Install AWS Load Balancer Controller via Helm with a pod identity role.
-- [ ] 4.2.10 \[HUMAN\] Decide data layer: in-cluster Qdrant + Redis Stack on EBS (simplest) or Qdrant Cloud. Confirm any managed Redis supports the modules the checkpointer needs.
+- [ ] 4.2.10 \[HUMAN\] Decide data layer: in-cluster Qdrant + Redis on EBS (simplest) or Qdrant Cloud. Do not swap in ElastiCache or MemoryDB: neither exposes JSON or Search, so the checkpointer breaks.
 - [ ] 4.2.11 Secrets v1: `kubectl create secret` manually. Later: AWS Secrets Manager + External Secrets Operator.
 
 #### First manual deploy
@@ -465,7 +465,7 @@ Goal: every pull request is tested automatically, and every merge to `main` buil
 - [ ] 5.1.1 Use AWS OIDC (role from 4.2.6), not long-lived access keys.
 - [ ] 5.1.2 \[HUMAN\] Add repo variables: `AWS_ROLE_ARN`, `AWS_REGION`, `ECR_REPOSITORY`, `EKS_CLUSTER`. App secrets stay in AWS/Kubernetes, not GitHub.
 - [ ] 5.1.3 \[HUMAN\] Create GitHub environment `production` with a required reviewer.
-- [ ] 5.1.4 `.github/workflows/ci.yml` on `pull_request`: set up uv, `ruff check`, `pytest` with Qdrant and Redis Stack as service containers.
+- [ ] 5.1.4 `.github/workflows/ci.yml` on `pull_request`: set up uv, `ruff check`, `pytest` with Qdrant and Redis as service containers.
 - [ ] 5.1.5 Include the guardrail suite (2.3.8) in CI.
 - [ ] 5.1.6 `docker build` (no push) to catch Dockerfile breakage.
 - [ ] 5.1.7 Branch protection on `main`: CI must pass before merge.
