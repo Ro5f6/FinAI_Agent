@@ -2,8 +2,6 @@
 #
 # No top-level `version:` key: it is obsolete in Compose v2 and later, and
 # declaring it only produces a warning.
-#
-# Healthchecks for both services are added in 1.1.4.
 
 services:
   # Vector store for 10-K chunks. Pinned to the newest v1 release, which
@@ -17,6 +15,20 @@ services:
       # Bind mount, so the storage is visible locally. data/ is gitignored.
       - ./data/qdrant:/qdrant/storage
     restart: unless-stopped
+    healthcheck:
+      # This image ships no curl, wget or nc, so the usual curl healthcheck
+      # would never pass. bash is present, and /dev/tcp is a bash builtin, so
+      # the check speaks HTTP to /readyz directly.
+      test:
+        - CMD-SHELL
+        - >-
+          bash -c 'exec 3<>/dev/tcp/127.0.0.1/6333 &&
+          printf "GET /readyz HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n" >&3 &&
+          grep -q "200 OK" <&3'
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
 
   # Agent state for the LangGraph checkpointer. Redis 8 ships JSON and Search
   # in core, so this needs no module installation and no redis-stack image.
@@ -27,6 +39,22 @@ services:
     volumes:
       - redis-data:/data
     restart: unless-stopped
+    healthcheck:
+      # redis-cli exits 0 even when the reply is an error, so both
+      # `redis-cli PING` and `redis-cli JSON.SET ...` report healthy against a
+      # Redis with no modules -- verified on redis:7-alpine. Grepping MODULE
+      # LIST is the only form that actually fails when JSON or Search is gone,
+      # which is the failure this project has to catch early.
+      test:
+        - CMD-SHELL
+        - >-
+          redis-cli PING | grep -q PONG &&
+          redis-cli MODULE LIST | grep -q ReJSON &&
+          redis-cli MODULE LIST | grep -q search
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
 
 volumes:
   redis-data:

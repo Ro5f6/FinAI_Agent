@@ -145,7 +145,7 @@ Goal: on a laptop, the agent ingests 10-K filings, pulls live prices, and answer
 - [x] 1.1.1 Create `docker-compose.yml` at the repo root.
 - [x] 1.1.2 Add `qdrant` service: pinned `qdrant/qdrant:v1.x` tag, ports 6333 (REST) and 6334 (gRPC), volume `./data/qdrant:/qdrant/storage`.
 - [x] 1.1.3 Add `redis` service: `redis:8.10.2-alpine` (JSON and Search are in core as of Redis 8), port 6379, named volume.
-- [ ] 1.1.4 Add healthchecks to both services.
+- [x] 1.1.4 Add healthchecks to both services.
 - [ ] 1.1.5 Run `docker compose up -d` and `docker compose ps`.
 - [ ] 1.1.6 Open `http://localhost:6333/dashboard`; run `docker compose exec redis redis-cli ping` and expect `PONG`.
 
