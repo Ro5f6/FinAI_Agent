@@ -142,7 +142,7 @@ Goal: on a laptop, the agent ingests 10-K filings, pulls live prices, and answer
 
 ### 1.1 Local infrastructure
 
-- [ ] 1.1.1 Create `docker-compose.yml` at the repo root.
+- [x] 1.1.1 Create `docker-compose.yml` at the repo root.
 - [ ] 1.1.2 Add `qdrant` service: pinned `qdrant/qdrant:v1.x` tag, ports 6333 (REST) and 6334 (gRPC), volume `./data/qdrant:/qdrant/storage`.
 - [ ] 1.1.3 Add `redis` service: `redis:8.10.2-alpine` (JSON and Search are in core as of Redis 8), port 6379, named volume.
 - [ ] 1.1.4 Add healthchecks to both services.

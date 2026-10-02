@@ -1,0 +1,11 @@
+# Local infrastructure for FinAI-Agent.
+#
+# No top-level `version:` key: it is obsolete in Compose v2 and later, and
+# declaring it only produces a warning.
+#
+# Services are added by the following tasks:
+#   1.1.2  qdrant  -- vector store for 10-K chunks
+#   1.1.3  redis   -- Redis 8 (JSON + Search in core) for the LangGraph checkpointer
+#   1.1.4  healthchecks for both
+
+services: {}
