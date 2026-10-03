@@ -157,7 +157,7 @@ Goal: on a laptop, the agent ingests 10-K filings, pulls live prices, and answer
 
 - [x] 1.2.1 `uv add edgartools`.
 - [x] 1.2.2 Call `set_identity(settings.SEC_IDENTITY)` ("Name email"). SEC rejects anonymous requests.
-- [ ] 1.2.3 Fetch the latest 10-K for a ticker (e.g., `Company("AAPL").get_filings(form="10-K").latest()`; verify the API against the installed version).
+- [x] 1.2.3 Fetch the latest 10-K for a ticker (e.g., `Company("AAPL").get_filings(form="10-K").latest()`; verify the API against the installed version).
 - [ ] 1.2.4 Cache raw filing to `data/raw/<TICKER>/<accession>.html` plus `meta.json` (filing date, fiscal year, accession). Skip download if cached.
 
 #### Parse

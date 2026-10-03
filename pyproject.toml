@@ -25,3 +25,7 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Tests that call the live SEC API are deselected by default: they are slow,
+# depend on the network, and EDGAR rate-limits. Run them with `-m network`.
+addopts = "-m 'not network'"
+markers = ["network: hits the live SEC EDGAR API"]
