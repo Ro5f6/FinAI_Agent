@@ -5,6 +5,7 @@ description = "Autonomous portfolio and investment research agent over SEC 10-K 
 readme = "README.md"
 requires-python = ">=3.13,<3.14"
 dependencies = [
+    "edgartools>=5.60.0",
     "pydantic-settings>=2.15.0",
 ]
 
