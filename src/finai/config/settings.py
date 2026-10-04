@@ -7,6 +7,8 @@ Field names are uppercase so they map one-to-one onto the variable names in
 ``.env.example`` and read the same way at the call site (``settings.QDRANT_URL``).
 """
 
+from pathlib import Path
+
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -62,6 +64,27 @@ class Settings(BaseSettings):
     # --- SEC filings ---
     SEC_IDENTITY: str = Field(
         description="Contact identity the SEC requires on every EDGAR request, e.g. 'Name email'.",
+    )
+    RAW_FILINGS_DIR: Path = Field(
+        default=Path("data/raw"),
+        description="Archive of fetched filings, gzipped, for provenance and manual inspection.",
+    )
+    EDGAR_LOCAL_DATA_DIR: Path = Field(
+        default=Path("data/edgar"),
+        description="edgartools local store. This is the cache that makes re-runs free.",
+    )
+    EDGAR_RATE_LIMIT_PER_SEC: int = Field(
+        default=5,
+        ge=1,
+        le=10,
+        description=(
+            "SEC caps requests at 10/s. edgartools defaults to 9; 5 leaves headroom. "
+            "The limiter is per process, so parallel workers multiply this."
+        ),
+    )
+    EDGAR_ALLOW_NETWORK_FALLBACK: bool = Field(
+        default=True,
+        description="False forbids all SEC requests, serving only from the local store.",
     )
 
     # --- Tracing ---

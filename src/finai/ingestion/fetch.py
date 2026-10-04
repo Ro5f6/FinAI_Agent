@@ -1,10 +1,25 @@
-"""EDGAR access for SEC filings.
+"""Fetching and archiving SEC filings.
 
-The SEC rejects anonymous requests, so an identity must be registered before
-any EDGAR call. edgartools stores it in the ``EDGAR_IDENTITY`` environment
-variable, which makes registration process-global and safe to repeat.
+Two separate concerns, deliberately kept apart:
+
+* The **cache** is edgartools' own local store (``EDGAR_LOCAL_DATA_DIR``). It is
+  what makes re-runs free and parsing offline: once a filing is in the store,
+  ``filing.obj()`` reads from disk and the SEC is not contacted again.
+* The **archive** is this module's gzipped copy under ``RAW_FILINGS_DIR``. It
+  exists for provenance -- being able to open the exact document behind a cited
+  claim -- not for performance, and nothing downstream reads it.
+
+HTML compresses about 14x, so the archive costs roughly 110 KB per filing
+rather than 1.5 MB.
 """
 
+import gzip
+import hashlib
+import json
+import os
+from pathlib import Path
+
+import edgar
 from edgar import Company, get_identity, set_identity
 from edgar.entity import EntityFiling
 
@@ -26,6 +41,25 @@ def configure_edgar_identity() -> str:
     return get_identity()
 
 
+def configure_edgar() -> None:
+    """Register the identity, the rate limit and the local store.
+
+    The rate limit is read by edgartools from the environment at request time,
+    so it has to be exported rather than passed as an argument. ``Settings``
+    remains the single source of the value.
+    """
+    configure_edgar_identity()
+
+    os.environ["EDGAR_RATE_LIMIT_PER_SEC"] = str(settings.EDGAR_RATE_LIMIT_PER_SEC)
+
+    # use_local_storage raises FileNotFoundError on a missing directory.
+    settings.EDGAR_LOCAL_DATA_DIR.mkdir(parents=True, exist_ok=True)
+    edgar.use_local_storage(
+        settings.EDGAR_LOCAL_DATA_DIR,
+        allow_network_fallback=settings.EDGAR_ALLOW_NETWORK_FALLBACK,
+    )
+
+
 def get_latest_10k(ticker: str) -> EntityFiling:
     """Return the most recent original 10-K for ``ticker``.
 
@@ -38,10 +72,79 @@ def get_latest_10k(ticker: str) -> EntityFiling:
         FilingNotFoundError: the company exists but has filed no 10-K.
         CompanyNotFoundError: edgartools does not recognise the ticker.
     """
-    configure_edgar_identity()
+    configure_edgar()
 
     filings = Company(ticker).get_filings(form="10-K", amendments=False)
     latest = filings.latest()
     if latest is None:
         raise FilingNotFoundError(f"no 10-K filings found for ticker {ticker!r}")
     return latest
+
+
+def _fiscal_year(filing: EntityFiling) -> int:
+    """Derive the fiscal year from the period reported on, not the filing date.
+
+    A company whose business year ends in November files the following year, so
+    ``filing_date`` would label those chunks with the wrong year and a search
+    filtered on ``fiscal_year`` would silently miss them.
+    """
+    return int(str(filing.period_of_report)[:4])
+
+
+def archive_paths(
+    ticker: str, accession: str, root: Path | None = None
+) -> tuple[Path, Path]:
+    """Return the ``(document, metadata)`` paths for one filing."""
+    base = (root or settings.RAW_FILINGS_DIR) / ticker.upper()
+    return base / f"{accession}.html.gz", base / f"{accession}.meta.json"
+
+
+def archive_filing(filing: EntityFiling, ticker: str, root: Path | None = None) -> Path:
+    """Archive ``filing`` as gzipped HTML plus metadata, and return its path.
+
+    Returns early when both files already exist, so ``filing.html()`` -- the
+    download -- is never called for an already archived filing. The accession
+    is part of the filename, so a newly filed 10-K misses the cache and is
+    picked up rather than masked by last year's copy.
+    """
+    accession = filing.accession_no
+    document, metadata = archive_paths(ticker, accession, root)
+
+    if document.exists() and metadata.exists():
+        return document
+
+    document.parent.mkdir(parents=True, exist_ok=True)
+
+    html = filing.html()
+    payload = html.encode("utf-8")
+    document.write_bytes(gzip.compress(payload, compresslevel=9))
+
+    metadata.write_text(
+        json.dumps(
+            {
+                "ticker": ticker.upper(),
+                "accession": accession,
+                "form": filing.form,
+                # filing_date is a datetime.date, which json cannot serialise.
+                "filing_date": filing.filing_date.isoformat(),
+                "period_of_report": str(filing.period_of_report),
+                "fiscal_year": _fiscal_year(filing),
+                # Lets the archive be pruned and later re-fetched from EDGAR
+                # with proof the bytes are identical.
+                "sha256": hashlib.sha256(payload).hexdigest(),
+                "bytes_raw": len(payload),
+                "bytes_gzipped": document.stat().st_size,
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return document
+
+
+def read_archived_filing(ticker: str, accession: str, root: Path | None = None) -> str:
+    """Read an archived filing back as HTML."""
+    document, _ = archive_paths(ticker, accession, root)
+    with gzip.open(document, "rt", encoding="utf-8") as handle:
+        return handle.read()

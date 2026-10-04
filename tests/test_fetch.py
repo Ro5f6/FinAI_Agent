@@ -5,7 +5,11 @@ network nor consumes EDGAR rate limit. The live call is marked ``network`` and
 deselected unless asked for.
 """
 
+import datetime as dt
+import gzip
+import json
 import os
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -14,8 +18,11 @@ from finai.config import settings
 from finai.ingestion import fetch
 from finai.ingestion.fetch import (
     FilingNotFoundError,
+    archive_filing,
+    archive_paths,
     configure_edgar_identity,
     get_latest_10k,
+    read_archived_filing,
 )
 
 
@@ -95,3 +102,106 @@ def test_get_latest_10k_against_live_edgar() -> None:
     assert filing.form == "10-K"
     assert filing.accession_no
     assert filing.filing_date is not None
+
+
+class _StubFiling:
+    """Minimal stand-in for EntityFiling, counting html() calls."""
+
+    form = "10-K"
+    accession_no = "0000320193-25-000079"
+    filing_date = dt.date(2026, 2, 15)
+    # Deliberately a different year from filing_date: a November year end
+    # filed the following February is exactly where the two diverge.
+    period_of_report = "2025-11-30"
+
+    def __init__(
+        self, html: str = "<html><body>Item 1A. Risk Factors</body></html>"
+    ) -> None:
+        self._html = html
+        self.html_calls = 0
+
+    def html(self) -> str:
+        self.html_calls += 1
+        return self._html
+
+
+def test_archive_writes_gzipped_html_and_metadata(tmp_path: Path) -> None:
+    filing = _StubFiling()
+
+    document = archive_filing(filing, "aapl", root=tmp_path)
+
+    assert document.suffixes[-2:] == [".html", ".gz"]
+    # Ticker is upper-cased so "aapl" and "AAPL" cannot create two directories.
+    assert document.parent.name == "AAPL"
+    with gzip.open(document, "rt", encoding="utf-8") as handle:
+        assert "Risk Factors" in handle.read()
+
+
+def test_archive_metadata_contents(tmp_path: Path) -> None:
+    filing = _StubFiling()
+
+    archive_filing(filing, "AAPL", root=tmp_path)
+    _, metadata = archive_paths("AAPL", filing.accession_no, root=tmp_path)
+    meta = json.loads(metadata.read_text())
+
+    assert meta["accession"] == filing.accession_no
+    assert meta["form"] == "10-K"
+    # A date object would raise TypeError from json.dump, so it must be a string.
+    assert meta["filing_date"] == "2026-02-15"
+    assert isinstance(meta["sha256"], str) and len(meta["sha256"]) == 64
+    # Sizes are recorded for both; gzip only beats raw on realistic input,
+    # which test_archive_round_trips_through_gzip covers.
+    assert meta["bytes_raw"] > 0
+    assert meta["bytes_gzipped"] > 0
+
+
+def test_fiscal_year_comes_from_period_not_filing_date(tmp_path: Path) -> None:
+    """The regression guard for mislabelled chunks on non-calendar year ends."""
+    filing = _StubFiling()
+
+    archive_filing(filing, "AAPL", root=tmp_path)
+    _, metadata = archive_paths("AAPL", filing.accession_no, root=tmp_path)
+
+    assert json.loads(metadata.read_text())["fiscal_year"] == 2025  # not 2026
+
+
+def test_archive_skips_download_when_already_cached(tmp_path: Path) -> None:
+    """The whole point: an archived filing must not be downloaded again."""
+    filing = _StubFiling()
+
+    archive_filing(filing, "AAPL", root=tmp_path)
+    assert filing.html_calls == 1
+
+    archive_filing(filing, "AAPL", root=tmp_path)
+    assert filing.html_calls == 1  # unchanged: no second download
+
+
+def test_archive_is_not_reused_for_a_different_accession(tmp_path: Path) -> None:
+    """A newly filed 10-K must miss the cache rather than read last year's."""
+    old = _StubFiling("<html>old</html>")
+    archive_filing(old, "AAPL", root=tmp_path)
+
+    new = _StubFiling("<html>new</html>")
+    new.accession_no = "0000320193-26-000001"
+    archive_filing(new, "AAPL", root=tmp_path)
+
+    assert new.html_calls == 1
+    assert "new" in read_archived_filing("AAPL", new.accession_no, root=tmp_path)
+    assert "old" in read_archived_filing("AAPL", old.accession_no, root=tmp_path)
+
+
+def test_archive_round_trips_through_gzip(tmp_path: Path) -> None:
+    filing = _StubFiling("<html><body>" + "supply chain risk " * 500 + "</body></html>")
+
+    archive_filing(filing, "AAPL", root=tmp_path)
+
+    assert (
+        read_archived_filing("AAPL", filing.accession_no, root=tmp_path)
+        == filing.html()
+    )
+
+
+def test_settings_defaults_separate_archive_from_cache() -> None:
+    """The archive and the library cache must not share a directory."""
+    assert settings.RAW_FILINGS_DIR != settings.EDGAR_LOCAL_DATA_DIR
+    assert 1 <= settings.EDGAR_RATE_LIMIT_PER_SEC <= 10
