@@ -164,7 +164,7 @@ Goal: on a laptop, the agent ingests 10-K filings, pulls live prices, and answer
 
 - [ ] 1.2.5 Use the structured 10-K object (`filing.obj()`) to extract Items 1, 1A, 7, 7A and 8 separately.
 - [ ] 1.2.6 Normalize whitespace; strip page headers and footers.
-- [ ] 1.2.7 Decide how to treat financial tables. Note in README: exact figures should later come from XBRL financials, not text chunks.
+- [ ] 1.2.7 Decide how to treat financial tables. Note in README: exact figures should come from the structured financials, not text chunks. GAAP requires comparative periods, so one 10-K's `income_statement`, `balance_sheet` and `cash_flow_statement` already carry three fiscal years (verified on AAPL FY2025: 2025, 2024, 2023). Three years of fundamentals therefore need no extra fetching, ingestion or embedding -- only the tools in 1.3.22-1.3.25.
 
 #### Chunk
 
@@ -199,6 +199,7 @@ Goal: on a laptop, the agent ingests 10-K filings, pulls live prices, and answer
 - [ ] 1.3.3 `get_user_portfolio()` stub returning fixed holdings; wired to the database in 2.2.
 - [ ] 1.3.4 Wrap each with `@tool`, typed args and a precise docstring (the LLM reads it).
 - [ ] 1.3.5 One pytest per tool; mock network calls.
+- Numeric analysis tools were added later: see 1.3.22-1.3.25. They are tools too, and 1.3.4 and 1.3.5 apply to them.
 
 #### State and model
 
@@ -229,6 +230,21 @@ Goal: on a laptop, the agent ingests 10-K filings, pulls live prices, and answer
 - [ ] 1.3.21 Out of scope: "Write me a poem." Record current behavior; 2.3 adds the guardrail.
 
 **Done when:** prompt 1.3.20 calls both tools, the answer cites 10-K sections, and memory survives a restart.
+
+#### Numeric analysis tools (amendment)
+
+The plan as first written was point-in-time: a live quote, the latest 10-K, and
+current portfolio value. Analysis is mostly about what changed and how fast, so
+these tools supply the trend. All figures come from structured sources and all
+arithmetic happens in Python, so the verifier in 1.5.4 and 1.5.6 can check every
+number. These are research tools: they report what the filings and prices show
+and never recommend buying or selling, because a recommendation is the one output
+the verifier cannot check against any tool result.
+
+- [ ] 1.3.22 `get_financial_history(ticker)`: from the latest 10-K's structured statements, return revenue, gross and operating margin, net income, EPS, total debt and cash for the three comparative fiscal years. No extra EDGAR requests: the periods are already in the filing (1.2.7).
+- [ ] 1.3.23 Trend computation in Python: year-over-year and three-year growth for revenue and net income, plus margin deltas. Never let the LLM compute these.
+- [ ] 1.3.24 `get_price_history(ticker, period="1y")`: yfinance history, returning total return, annualised volatility and maximum drawdown, all computed in Python. Cache like 1.3.1; yfinance is unofficial and rate-limited.
+- [ ] 1.3.25 Wrap both with `@tool` (1.3.4) and test each (1.3.5). Assert the computed figures equal hand-calculated fixtures, per the deterministic numeric rule in 6.2.6.
 
 ### 1.4 Observability
 
