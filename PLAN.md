@@ -185,7 +185,7 @@ Goal: on a laptop, the agent ingests 10-K filings, pulls live prices, and answer
 - [ ] 1.2.16 Assert the collection point count equals the number of chunks produced.
 - [ ] 1.2.17 Search "What are Apple's main supply chain risks?" filtered to `ticker=AAPL`; print top 5 with section.
 - [ ] 1.2.18 Wrap as CLI: `python -m finai.ingestion.ingest --ticker AAPL`.
-- [ ] 1.2.19 Ingest NVDA and MSFT as well.
+- [ ] 1.2.19 Ingest NVDA and MSFT as well, and ingest the latest N 10-Ks per ticker via `.latest(n)` rather than only the most recent, so year-over-year questions have something to compare. Add `--years` to the 1.2.18 CLI, default 1. Each year has its own accession, so the deterministic IDs in 1.2.11 keep the years from overwriting each other.
 - [ ] 1.2.20 Tests: chunker respects the token limit; IDs are stable across runs.
 
 **Done when:** the supply-chain query returns relevant Item 1A chunks and re-running ingestion leaves the point count unchanged.
@@ -195,7 +195,7 @@ Goal: on a laptop, the agent ingests 10-K filings, pulls live prices, and answer
 #### Tools (build and test before any graph)
 
 - [ ] 1.3.1 `get_live_market_data(ticker)`: return price, % change, market cap, 52-week range, P/E. Handle invalid tickers. Cache \~60 s (yfinance is unofficial and rate-limited).
-- [ ] 1.3.2 `query_company_10k(ticker, question, section=None, k=5)`: embed with the ingestion model, filtered Qdrant search, return text plus citation metadata.
+- [ ] 1.3.2 `query_company_10k(ticker, question, section=None, fiscal_year=None, k=5)`: embed with the ingestion model, filtered Qdrant search, return text plus citation metadata including `fiscal_year`. The year filter is not optional polish: with several years indexed, chunks blend together and the answer cannot say which year a passage came from. Use the integer index from 1.2.14.
 - [ ] 1.3.3 `get_user_portfolio()` stub returning fixed holdings; wired to the database in 2.2.
 - [ ] 1.3.4 Wrap each with `@tool`, typed args and a precise docstring (the LLM reads it).
 - [ ] 1.3.5 One pytest per tool; mock network calls.
