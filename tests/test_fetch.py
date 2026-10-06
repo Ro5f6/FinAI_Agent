@@ -18,9 +18,11 @@ from finai.config import settings
 from finai.ingestion import fetch
 from finai.ingestion.fetch import (
     FilingNotFoundError,
+    UnsupportedFilingError,
     archive_filing,
     archive_paths,
     configure_edgar_identity,
+    filing_html,
     get_latest_10k,
     read_archived_filing,
 )
@@ -104,8 +106,18 @@ def test_get_latest_10k_against_live_edgar() -> None:
     assert filing.filing_date is not None
 
 
+class _StubSgml:
+    """Stand-in for the SGML wrapper, whose html() is the preferred accessor."""
+
+    def __init__(self, fetch_html: Any) -> None:
+        self._fetch_html = fetch_html
+
+    def html(self) -> str | None:
+        return self._fetch_html()
+
+
 class _StubFiling:
-    """Minimal stand-in for EntityFiling, counting html() calls."""
+    """Minimal stand-in for EntityFiling, counting document downloads."""
 
     form = "10-K"
     accession_no = "0000320193-25-000079"
@@ -115,14 +127,29 @@ class _StubFiling:
     period_of_report = "2025-11-30"
 
     def __init__(
-        self, html: str = "<html><body>Item 1A. Risk Factors</body></html>"
+        self,
+        html: str = "<html><body>Item 1A. Risk Factors</body></html>",
+        sgml_html: str | None = None,
+        use_sgml: bool = True,
     ) -> None:
         self._html = html
+        # None models the real failure: Filing.html() returns None for most
+        # inline-XBRL filings while sgml().html() still holds the document.
+        self._sgml_html = (
+            sgml_html if sgml_html is not None else (html if use_sgml else None)
+        )
         self.html_calls = 0
 
-    def html(self) -> str:
-        self.html_calls += 1
-        return self._html
+    def _download(self, body: str | None) -> str | None:
+        if body:
+            self.html_calls += 1
+        return body
+
+    def sgml(self) -> _StubSgml:
+        return _StubSgml(lambda: self._download(self._sgml_html))
+
+    def html(self) -> str | None:
+        return self._download(self._html)
 
 
 def test_archive_writes_gzipped_html_and_metadata(tmp_path: Path) -> None:
@@ -205,3 +232,27 @@ def test_settings_defaults_separate_archive_from_cache() -> None:
     """The archive and the library cache must not share a directory."""
     assert settings.RAW_FILINGS_DIR != settings.EDGAR_LOCAL_DATA_DIR
     assert 1 <= settings.EDGAR_RATE_LIMIT_PER_SEC <= 10
+
+
+def test_filing_html_prefers_sgml() -> None:
+    """sgml().html() is populated where Filing.html() is not."""
+    filing = _StubFiling(
+        html="<html>from html()</html>", sgml_html="<html>from sgml</html>"
+    )
+
+    assert "from sgml" in filing_html(filing)
+
+
+def test_filing_html_falls_back_when_sgml_is_empty() -> None:
+    filing = _StubFiling(html="<html>fallback</html>", use_sgml=False)
+
+    assert "fallback" in filing_html(filing)
+
+
+def test_filing_html_raises_when_no_document_is_available() -> None:
+    """The real NVDA/MSFT failure. Fail clearly here rather than with
+    AttributeError on None several frames later."""
+    filing = _StubFiling(html="", sgml_html=None)
+
+    with pytest.raises(UnsupportedFilingError, match="no HTML available"):
+        filing_html(filing)

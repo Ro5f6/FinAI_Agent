@@ -30,6 +30,10 @@ class FilingNotFoundError(LookupError):
     """No filing of the requested form exists for the requested company."""
 
 
+class UnsupportedFilingError(TypeError):
+    """The filing yielded no usable HTML document."""
+
+
 def configure_edgar_identity() -> str:
     """Register the SEC contact identity for this process.
 
@@ -81,6 +85,27 @@ def get_latest_10k(ticker: str) -> EntityFiling:
     return latest
 
 
+def filing_html(filing: EntityFiling) -> str:
+    """Return the filing's primary HTML.
+
+    ``Filing.html()`` is not reliable across companies. For inline-XBRL filings
+    -- which is every modern 10-K -- it falls through to
+    ``homepage.primary_html_document`` and returns None when that is absent,
+    which it is for NVDA, MSFT and F among others; only AAPL happened to work.
+    ``sgml().html()`` carries the same document and is populated in every case
+    checked, so it is tried first and ``html()`` is kept as the fallback.
+
+    Raises:
+        UnsupportedFilingError: neither accessor produced HTML.
+    """
+    html = filing.sgml().html() or filing.html()
+    if not html:
+        raise UnsupportedFilingError(
+            f"no HTML available for {filing.form} {filing.accession_no}"
+        )
+    return html
+
+
 def _fiscal_year(filing: EntityFiling) -> int:
     """Derive the fiscal year from the period reported on, not the filing date.
 
@@ -115,8 +140,7 @@ def archive_filing(filing: EntityFiling, ticker: str, root: Path | None = None) 
 
     document.parent.mkdir(parents=True, exist_ok=True)
 
-    html = filing.html()
-    payload = html.encode("utf-8")
+    payload = filing_html(filing).encode("utf-8")
     document.write_bytes(gzip.compress(payload, compresslevel=9))
 
     metadata.write_text(
