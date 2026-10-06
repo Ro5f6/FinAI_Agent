@@ -162,7 +162,7 @@ Goal: on a laptop, the agent ingests 10-K filings, pulls live prices, and answer
 
 #### Parse
 
-- [ ] 1.2.5 Use the structured 10-K object (`filing.obj()`) to extract Items 1, 1A, 7, 7A and 8 separately.
+- [x] 1.2.5 Use the structured 10-K object (`filing.obj()`) to extract Items 1, 1A, 7, 7A and 8 separately.
 - [ ] 1.2.6 Normalize whitespace; strip page headers and footers.
 - [ ] 1.2.7 Decide how to treat financial tables. Note in README: exact figures should come from the structured financials, not text chunks. GAAP requires comparative periods, so one 10-K's `income_statement`, `balance_sheet` and `cash_flow_statement` already carry three fiscal years (verified on AAPL FY2025: 2025, 2024, 2023). Three years of fundamentals therefore need no extra fetching, ingestion or embedding -- only the tools in 1.3.22-1.3.25.
 
