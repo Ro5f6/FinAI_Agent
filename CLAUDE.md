@@ -2,6 +2,10 @@
 
 Autonomous portfolio and investment research agent: LangGraph agent with RAG over SEC 10-K filings (Qdrant), live market data (yfinance), a verifier node, a guarded FastAPI streaming API, deployed to AWS EKS.
 
+## Context
+
+`docs/CONTEXT.md` records build state, library behaviour verified against installed versions, and decisions that depart from `PLAN.md`. Read it before resuming work.
+
 ## The plan
 
 The full build plan is in `PLAN.md`. Task IDs look like `1.2.7`.
