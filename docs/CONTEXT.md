@@ -74,6 +74,17 @@ step 1.2, tasks 1.2.1–1.2.5 are done; **1.2.6 is next**.
   diverge for non-calendar year ends and would mislabel chunks.
 - `data/raw/` is a **provenance archive**; the cache that makes re-runs free is
   edgartools' own store at `data/edgar/`. They must not share a directory.
+- Market data is **Finnhub** (live quotes, 1.3.1) plus **Alpaca** (daily price
+  history, 1.3.24), not yfinance, which is an unofficial scraper. Finnhub's
+  docs pages render client-side and its `swagger.json` carries no plan tiers,
+  so "price history is paid-only" rests on free-key 403 reports on
+  `/stock/candle` in finnhub-python issues #58 (2024) and #64 (Oct 2025), not
+  an official statement. 1.3.1 settles it with one call; a 200 means drop
+  Alpaca. Alpaca's official docs give the free plan history back to 2016,
+  200 calls/min, latest 15 minutes withheld.
+- Price history fetches **5 years** and slices to 1y/3y/5y: 3y matches the
+  three comparative fiscal years in one 10-K, 5y reaches back past the 2022
+  drawdown, and 10y is past Alpaca's 2016 floor and stale for volatility.
 - This is a **research** tool: it reports what filings and prices show and never
   recommends buying or selling, because a recommendation is the one output the
   verifier in 1.5 cannot check against any tool result.

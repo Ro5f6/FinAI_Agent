@@ -4,7 +4,7 @@ Sep 29, 2026 · @Rohith Sai Gude
 
 ## Instructions for the AI coding agent
 
-FinAI-Agent is an autonomous portfolio and investment research agent: it answers questions by combining SEC 10-K filings (RAG over Qdrant), live market data (yfinance) and the user's portfolio, behind a guarded FastAPI streaming API, deployed to AWS EKS. Build it local-first, cloud-last, one phase at a time.
+FinAI-Agent is an autonomous portfolio and investment research agent: it answers questions by combining SEC 10-K filings (RAG over Qdrant), live market data (Finnhub quotes, Alpaca price history) and the user's portfolio, behind a guarded FastAPI streaming API, deployed to AWS EKS. Build it local-first, cloud-last, one phase at a time.
 
 ### How to work through this doc
 
@@ -26,7 +26,7 @@ FinAI-Agent is an autonomous portfolio and investment research agent: it answers
 | Vector DB (long-term memory) | Qdrant |
 | Agent state (short-term memory) | Redis 8 (JSON + Search in core) + langgraph-checkpoint-redis |
 | Agent framework | LangGraph + LangChain tools |
-| Market data | yfinance |
+| Market data | Finnhub (live quotes) + Alpaca (daily price history), both free tiers |
 | Observability | LangSmith or Langfuse |
 | API | FastAPI, SSE streaming, Pydantic |
 | Guardrails | LLM Guard |
@@ -106,6 +106,8 @@ Goal: accounts, tools and an empty but correctly structured repo, so every later
 - [ ] 0.1.2 Get an LLM provider API key (Anthropic or OpenAI).
 - [ ] 0.1.3 Create a LangSmith account, or decide to self-host Langfuse.
 - [ ] 0.1.4 Don't create the AWS account yet. It moves to 4.0 so the 6-month free-plan clock starts only when AWS is needed.
+- [ ] 0.1.5 Get a free Finnhub API key (live quotes for 1.3.1). The free tier is non-commercial only.
+- [ ] 0.1.6 Open a free Alpaca paper-trading account and generate an API key and secret (daily price history for 1.3.24). No funding needed for market data.
 
 **Done when:** all keys are stored in a password manager, not in the repo.
 
@@ -194,7 +196,7 @@ Goal: on a laptop, the agent ingests 10-K filings, pulls live prices, and answer
 
 #### Tools (build and test before any graph)
 
-- [ ] 1.3.1 `get_live_market_data(ticker)`: return price, % change, market cap, 52-week range, P/E. Handle invalid tickers. Cache \~60 s (yfinance is unofficial and rate-limited).
+- [ ] 1.3.1 `get_live_market_data(ticker)`: return price, % change, market cap, 52-week range, P/E, plus the quote timestamp. Source is Finnhub, not yfinance (unofficial scraper, rate-limited, breaks without notice). One endpoint does not cover the fields, so combine `/quote` (price, % change, timestamp), `/stock/profile2` (market cap) and `/stock/metric` (52-week range, P/E); confirm field names against the live API before coding. Add `FINNHUB_API_KEY` (`SecretStr`) to `Settings` and `.env.example`. Handle invalid tickers. Cache \~60 s; the free tier allows 60 calls/min and each quote costs three. Also call `/stock/candle` once with the free key and record the result in `docs/CONTEXT.md`: price history is reported as paid-only (403 for free keys), which is why 1.3.24 uses Alpaca. If it returns 200, drop Alpaca and use Finnhub alone.
 - [ ] 1.3.2 `query_company_10k(ticker, question, section=None, fiscal_year=None, k=5)`: embed with the ingestion model, filtered Qdrant search, return text plus citation metadata including `fiscal_year`. The year filter is not optional polish: with several years indexed, chunks blend together and the answer cannot say which year a passage came from. Use the integer index from 1.2.14.
 - [ ] 1.3.3 `get_user_portfolio()` stub returning fixed holdings; wired to the database in 2.2.
 - [ ] 1.3.4 Wrap each with `@tool`, typed args and a precise docstring (the LLM reads it).
@@ -243,7 +245,7 @@ the verifier cannot check against any tool result.
 
 - [ ] 1.3.22 `get_financial_history(ticker)`: from the latest 10-K's structured statements, return revenue, gross and operating margin, net income, EPS, total debt and cash for the three comparative fiscal years. No extra EDGAR requests: the periods are already in the filing (1.2.7).
 - [ ] 1.3.23 Trend computation in Python: year-over-year and three-year growth for revenue and net income, plus margin deltas. Never let the LLM compute these.
-- [ ] 1.3.24 `get_price_history(ticker, period="1y")`: yfinance history, returning total return, annualised volatility and maximum drawdown, all computed in Python. Cache like 1.3.1; yfinance is unofficial and rate-limited.
+- [ ] 1.3.24 `get_price_history(ticker, period="1y")`, `period` one of `"1y"`, `"3y"`, `"5y"`. Source is Alpaca historical daily bars (free plan: back to 2016, 200 calls/min, latest 15 minutes withheld, which daily bars do not need). Always fetch 5 years of split- and dividend-adjusted bars in one request (\~1,260 rows) and slice locally, so every period costs the same. Return total return, annualised volatility and maximum drawdown for the requested period, plus returns per fiscal year using each filing's `period_of_report` as the boundary, so price and fundamentals (1.3.22) cover the same span even for non-calendar year ends (AAPL September, MSFT June). Return the actual start date used: a short listing such as RIVN (2021) silently yields less than 5 years. All arithmetic in Python. Cache for a day, since daily closes change once a day. Add `ALPACA_API_KEY` and `ALPACA_SECRET_KEY` (`SecretStr`) to `Settings` and `.env.example`. Before coding, verify against the installed client or live API: the adjustment parameter's name and behaviour (an unadjusted NVDA 10-for-1 split in 2024 would read as a 90% crash), and whether the free plan allows the full-market (SIP) feed for older bars or only IEX.
 - [ ] 1.3.25 Wrap both with `@tool` (1.3.4) and test each (1.3.5). Assert the computed figures equal hand-calculated fixtures, per the deterministic numeric rule in 6.2.6.
 
 ### 1.4 Observability
