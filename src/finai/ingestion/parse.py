@@ -48,8 +48,8 @@ def extract_items(
     Length is not checked, and some items are present but vestigial: Item 8 is
     frequently a one-line cross-reference to a separate financial-statements
     index rather than the statements themselves (NVDA 207 chars, F 436 chars,
-    against AAPL 62,223 and MSFT 105,683). Those pass the non-blank test and
-    would become a useless chunk, so chunking should apply a minimum length.
+    against AAPL 62,223 and MSFT 105,683). Those pass the non-blank test;
+    ``clean.clean_items`` drops them by length after removing page furniture.
     """
     if document is None or not hasattr(document, "get_sec_section"):
         raise UnsupportedFilingError(

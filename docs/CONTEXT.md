@@ -9,7 +9,7 @@ per change.
 
 Phase 0 complete except `[HUMAN]` items (0.1.x accounts, and the "skeleton is
 pushed" half of 0.3 — there is still no git remote). Step 1.1 complete. In
-step 1.2, tasks 1.2.1–1.2.5 are done; **1.2.6 is next**.
+step 1.2, tasks 1.2.1–1.2.6 are done; **1.2.7 is next**.
 
 ## Verified library behaviour (edgartools 5.60.0)
 
@@ -45,6 +45,26 @@ step 1.2, tasks 1.2.1–1.2.5 are done; **1.2.6 is next**.
 - The rate limiter is `pyrate_limiter.InMemoryBucket`, **per process** (default
   9/s, SEC caps at 10/s). Parallel workers multiply the rate rather than sharing
   it — the most likely way to get IP-blocked.
+
+## Verified 10-K layout (10 filers: AAPL F MSFT NVDA GME RIVN JPM KO XOM WMT)
+
+- Page footers are a bare page number between blank lines (nine filers) or
+  `Apple Inc. | 2025 Form 10-K | 5` (AAPL). Every bare number checked was
+  blank-isolated and monotonic, so none were table cells.
+- Running headers differ per filer (`Table of Contents`, `PART II` + `Item 8`,
+  `Item 1. Business (Continued)`, `Part I`, the company name) and so are found
+  by position and repetition, not by name. Repetition alone misfires: table
+  column rows (AAPL `2025 2024 2023`) and subsection headings (F `Ford Credit
+  Segment`) also start pages. `clean.find_running_headers` documents the tests.
+- 120 page breaks fall mid-sentence across the ten filings; cleaning rejoins
+  them, so the splitter does not cut a sentence at a page boundary.
+- **JPM and XOM put Items 7, 7A and 8 outside the items**: each is a
+  cross-reference (170-657 chars) to an MD&A or "Financial Section" elsewhere
+  in the document. Cleaning drops them as vestigial and reports them, so those
+  companies currently get no MD&A chunks. Recovering it means locating the
+  referenced section, which is not yet in `PLAN.md`.
+- Cross-references reach 777 chars (XOM Item 8); the shortest real section is
+  1,988 (MSFT Item 7A). `MIN_SECTION_CHARS = 1_000`, measured after cleaning.
 
 ## Verified infrastructure
 
