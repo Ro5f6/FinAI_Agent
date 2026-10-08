@@ -8,8 +8,10 @@ paragraphs at page boundaries.
 The furniture differs by filer, so nothing here names a company. Measured over
 AAPL, F, MSFT, NVDA, GME, RIVN, JPM, KO, XOM and WMT:
 
-* **Page footers** are a bare page number on a line of its own (nine filers) or
-  ``Apple Inc. | 2025 Form 10-K | 5`` (AAPL). Every bare number checked was
+* **Page footers** are a bare page number on a line of its own (eight filers),
+  ``Apple Inc. | 2025 Form 10-K | 5`` (AAPL), or the company and form with
+  the number on the outer edge, ``48  JPMorgan Chase & Co./2025 Form 10-K``
+  (JPM). Every bare number checked was
   blank-isolated and increased monotonically, so they are page numbers rather
   than table cells, which sit on lines separated by single newlines.
 * **Running headers** follow the footer at the top of the next page:
@@ -46,7 +48,16 @@ _CELL_GAP = "  "
 _RUN_OF_BLANK_LINES = re.compile(r"\n{3,}")
 
 _PAGE_NUMBER = re.compile(r"\d{1,3}")
-_PAGE_FOOTER = re.compile(r".*\bForm 10-K\b.*\|\s*\d{1,3}", re.IGNORECASE)
+# A "Form 10-K" line with the page number at either end, set off by a pipe or a
+# cell gap: "Apple Inc. | 2025 Form 10-K | 5" (AAPL),
+# "JPMorgan Chase & Co./2025 Form 10-K  47" and "48  JPMorgan Chase & Co./..."
+# (JPM, alternating by page side).
+_PAGE_SEPARATOR = r"(?:\s*\|\s*|\s{2,})"
+_PAGE_FOOTER = re.compile(
+    rf"\d{{1,3}}{_PAGE_SEPARATOR}.{{0,80}}\bForm 10-K\b.{{0,40}}"
+    rf"|.{{0,80}}\bForm 10-K\b.{{0,40}}?{_PAGE_SEPARATOR}\d{{1,3}}",
+    re.IGNORECASE,
+)
 _ITEM_HEADING = re.compile(r"item\s*\d{1,2}[a-c]?\b", re.IGNORECASE)
 # Footnote separators such as "__________" (F).
 _RULE_LINE = re.compile(r"[_=*\-]{3,}")

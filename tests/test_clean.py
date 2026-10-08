@@ -104,6 +104,25 @@ def test_apple_style_footer_is_removed() -> None:
     assert clean_section(raw) == "First para.\n\nSecond para."
 
 
+@pytest.mark.parametrize(
+    "footer",
+    [
+        "JPMorgan Chase & Co./2025 Form 10-K  47",  # odd page: number outside right
+        "48  JPMorgan Chase & Co./2025 Form 10-K",  # even page: number outside left
+    ],
+)
+def test_jpm_style_footer_is_removed(footer: str) -> None:
+    raw = f"First para.\n\n{footer}\n\nSecond para."
+
+    assert clean_section(raw) == "First para.\n\nSecond para."
+
+
+def test_form_10k_mention_without_a_page_number_is_kept() -> None:
+    raw = "First para.\n\nRefer to the 2024 Form 10-K for details.\n\nSecond para."
+
+    assert clean_section(raw) == raw
+
+
 def test_number_inside_a_table_is_kept() -> None:
     """Table rows are separated by single newlines, so a lone cell is not a page."""
     raw = "Stores by region\nAmericas\n412\nEurope\n98"

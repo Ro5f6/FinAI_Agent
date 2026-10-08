@@ -80,10 +80,18 @@ def test_extract_filing_items_parses_the_filing_html(
 ) -> None:
     import finai.ingestion.parse as parse_module
 
+    configs = []
+
+    def fake_parse_html(_html: str, config: object = None) -> _StubDocument:
+        configs.append(config)
+        return _full_filing()
+
     monkeypatch.setattr(parse_module, "filing_html", lambda _f: "<html></html>")
-    monkeypatch.setattr(parse_module, "parse_html", lambda _h: _full_filing())
+    monkeypatch.setattr(parse_module, "parse_html", fake_parse_html)
 
     assert set(extract_filing_items(object())) == set(TARGET_ITEMS)
+    # Without form="10-K", incorporated-by-reference items are not followed.
+    assert configs[0].form == "10-K"
 
 
 def test_section_keys_carry_the_part_prefix() -> None:
@@ -111,3 +119,17 @@ def test_extract_items_against_live_filings(ticker: str) -> None:
         assert required in extracted, f"{ticker} missing {required}"
     assert len(extracted["Item 1A"]) > len(extracted["Item 7A"])
     assert all(text.strip() for text in extracted.values())
+
+
+@pytest.mark.network
+@pytest.mark.parametrize("ticker", ["JPM", "XOM"])
+def test_incorporated_mdna_is_followed(ticker: str) -> None:
+    """Item 7 only points elsewhere; the parse must return the MD&A it names.
+
+    Without form="10-K" these came back as a 396- and 265-char cross-reference.
+    """
+    from finai.ingestion.fetch import get_latest_10k
+
+    extracted = extract_filing_items(get_latest_10k(ticker))
+
+    assert len(extracted["Item 7"]) > 100_000

@@ -12,11 +12,18 @@ parsing, via ``parse_html`` and ``get_sec_section`` -- over the HTML that
 lengths to ``TenK.get`` for AAPL, while also working for the companies where
 ``TenK`` does not.
 
+The document must be parsed with ``form="10-K"``. Without it edgartools detects
+no sections, and ``get_sec_section`` returns an item verbatim even when the item
+only refers elsewhere: JPM and XOM print Item 7 as "MD&A appears on pages
+46-160", so their MD&A came back as 396 and 265 chars. With the form set, the
+reference is followed and the MD&A comes back whole (419,380 and 132,319).
+
 Item numbers are the ``section`` value stored on each chunk (1.2.10) and
 filtered on at query time (1.3.2), so they stay verbatim as the dict keys.
 """
 
-from edgar.documents import parse_html
+from edgar.documents import Document, parse_html
+from edgar.documents.config import ParserConfig
 from edgar.entity import EntityFiling
 
 from finai.ingestion.fetch import UnsupportedFilingError, filing_html
@@ -70,11 +77,16 @@ def extract_items(
     return extracted
 
 
+def parse_10k(html: str) -> Document:
+    """Parse 10-K HTML with section detection enabled."""
+    return parse_html(html, ParserConfig(form="10-K"))
+
+
 def extract_filing_items(
     filing: EntityFiling, items: tuple[str, ...] = TARGET_ITEMS
 ) -> dict[str, str]:
     """Extract items from a filing, parsing its HTML first."""
-    return extract_items(parse_html(filing_html(filing)), items)
+    return extract_items(parse_10k(filing_html(filing)), items)
 
 
 def missing_items(

@@ -92,10 +92,14 @@ step 1.2, tasks 1.2.1–1.2.7 are done; **1.2.8 is next**.
 - 120 page breaks fall mid-sentence across the ten filings; cleaning rejoins
   them, so the splitter does not cut a sentence at a page boundary.
 - **JPM and XOM put Items 7, 7A and 8 outside the items**: each is a
-  cross-reference (170-657 chars) to an MD&A or "Financial Section" elsewhere
-  in the document. Cleaning drops them as vestigial and reports them, so those
-  companies currently get no MD&A chunks. Recovering it means locating the
-  referenced section, which is not yet in `PLAN.md`.
+  cross-reference to an MD&A or "Financial Section" elsewhere in the document.
+  Fixed by parsing with `ParserConfig(form="10-K")` (`parse.parse_10k`), which
+  follows the reference: JPM Item 7 is 412,342 chars after cleaning, XOM
+  127,745. Item 7A stays a stub for both and is dropped; its content is inside
+  the MD&A. The other eight filers are byte-identical either way.
+- JPM's page footer is `JPMorgan Chase & Co./2025 Form 10-K  47`, with the
+  number on the outer edge, so it alternates sides; the footer rule accepts a
+  number at either end of a `Form 10-K` line.
 - Cross-references reach 777 chars (XOM Item 8); the shortest real section is
   1,988 (MSFT Item 7A). `MIN_SECTION_CHARS = 1_000`, measured after cleaning.
 
