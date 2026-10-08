@@ -1,358 +1,215 @@
-# Decision log
+# Decisions
 
-Every design decision made while building FinAI-Agent, with the options that
-were weighed and the evidence that settled it. `PLAN.md` says what to build;
-this file says why it was built this way.
+Why FinAI-Agent is built the way it is. `PLAN.md` lists the tasks; this file
+records the choices made along the way and the evidence for each.
 
-Most decisions here were settled by measurement rather than preference: an
-API checked against the installed library version, a claim tested on several
-companies instead of one, a cost estimated before committing to it. Where a
-first choice turned out wrong, the entry says so.
+To add one, use the next number and link the commit and plan task. If a
+decision replaces an earlier one, mark the old entry "Superseded by D-0NN"
+instead of deleting it.
 
-**Adding an entry:** append the next number, keep it short, and link the
-commit and plan task. A decision that replaces an earlier one marks the old
-entry `Superseded by D-0NN` rather than deleting it.
+### D-001 Python 3.13 (2026-09-29)
 
-## Index
+The plan said 3.12. All dependencies resolve the same on 3.12 and 3.13, so we
+took the newer one. 3.15 doesn't resolve because torch has no wheels for it,
+so `requires-python` is capped at `<3.14`.
+`59c4b91` · 0.3.2
 
-| ID | Date | Decision | Status |
-| --- | --- | --- | --- |
-| [D-001](#d-001-python-313) | 2026-09-29 | Python 3.13 | Accepted |
-| [D-002](#d-002-redis-8-not-redis-stack) | 2026-09-30 | Redis 8, not Redis Stack | Accepted |
-| [D-003](#d-003-healthchecks-test-capability-not-liveness) | 2026-10-02 | Healthchecks test capability, not liveness | Accepted |
-| [D-004](#d-004-configuration-fails-at-startup) | 2026-09-30 | Configuration fails at startup | Accepted |
-| [D-005](#d-005-exclude-amended-10-ks) | 2026-10-02 | Exclude amended 10-Ks | Accepted |
-| [D-006](#d-006-live-api-tests-are-opt-in-and-multi-company) | 2026-10-02 | Live-API tests are opt-in and multi-company | Accepted |
-| [D-007](#d-007-gzipped-provenance-archive-separate-from-the-cache) | 2026-10-04 | Gzipped provenance archive, separate from the cache | Accepted |
-| [D-008](#d-008-fiscal-year-comes-from-the-period-reported) | 2026-10-04 | Fiscal year comes from the period reported | Accepted |
-| [D-009](#d-009-multi-year-ingestion-with-a-year-filter) | 2026-10-04 | Multi-year ingestion with a year filter | Accepted |
-| [D-010](#d-010-numeric-analysis-tools-math-in-python) | 2026-10-04 | Numeric analysis tools, math in Python | Accepted |
-| [D-011](#d-011-a-research-tool-not-an-adviser) | 2026-10-04 | A research tool, not an adviser | Accepted |
-| [D-012](#d-012-parse-filings-without-filingobj) | 2026-10-06 | Parse filings without `filing.obj()` | Accepted |
-| [D-013](#d-013-finnhub-and-alpaca-not-yfinance) | 2026-10-07 | Finnhub and Alpaca, not yfinance | Accepted |
-| [D-014](#d-014-fetch-five-years-of-prices-slice-locally) | 2026-10-07 | Fetch five years of prices, slice locally | Accepted |
-| [D-015](#d-015-detect-page-furniture-by-position-and-repetition) | 2026-10-07 | Detect page furniture by position and repetition | Accepted |
-| [D-016](#d-016-drop-cross-reference-sections-by-length) | 2026-10-07 | Drop cross-reference sections by length | Accepted |
-| [D-017](#d-017-tables-stay-in-chunks-chunked-table-aware) | 2026-10-08 | Tables stay in chunks, chunked table-aware | Accepted |
-| [D-018](#d-018-figures-come-from-xbrl-breakdowns-later) | 2026-10-08 | Figures come from XBRL; breakdowns later | Accepted |
-| [D-019](#d-019-no-ocr-for-tables) | 2026-10-08 | No OCR for tables | Accepted |
-| [D-020](#d-020-follow-incorporated-by-reference-items) | 2026-10-08 | Follow incorporated-by-reference items | Accepted |
+### D-002 Redis 8 instead of Redis Stack (2026-09-30)
 
----
+The LangGraph checkpointer needs Redis JSON and Search. Redis 8 includes both
+in core (`MODULE LIST` shows `search` and `ReJSON`), so the Redis Stack image
+is unnecessary. ElastiCache and MemoryDB lack these modules, which rules them
+out for the AWS phase.
+`d5001dc` · 1.1.3, 4.2.10
 
-## Foundations
+### D-003 Healthchecks check modules, not just liveness (2026-10-02)
 
-### D-001: Python 3.13
+`redis-cli` exits 0 even on an error reply, so `PING` reports a Redis without
+modules as healthy. The healthcheck greps `MODULE LIST` for ReJSON and search
+instead. The Qdrant image has no curl, so its check uses bash's `/dev/tcp`.
+`c3a0bd2` · 1.1.4
 
-**Context.** The plan targeted Python 3.12.
-**Options.** 3.12; 3.13; 3.15.
-**Decision.** 3.13, bounded `>=3.13,<3.14`, including the Docker base image.
-**Why.** The full dependency set resolves identically on 3.12 and 3.13, so
-3.13 costs nothing. 3.15 does not resolve: there are no torch wheels for it.
-**Consequences.** The upper bound stops an accidental upgrade to an
-unresolvable version.
-**Refs.** `59c4b91`, task 0.3.2.
+### D-004 Settings load at import and fail fast (2026-09-30)
 
-### D-002: Redis 8, not Redis Stack
+One `Settings` singleton is built at import, so a missing API key fails at
+startup instead of as a 401 mid-request. `extra="ignore"` is required because
+pydantic-settings rejects unknown variables by default, and `.env.example`
+already lists variables for later phases. Keys are `SecretStr` so they don't
+appear in logs.
+`6cc6681`, `5ffcac2` · 0.4
 
-**Context.** The LangGraph checkpointer needs Redis with JSON and Search.
-The plan named the Redis Stack image.
-**Options.** `redis/redis-stack-server`; `redis:8`; a managed service
-(ElastiCache, MemoryDB).
-**Decision.** `redis:8.10.2-alpine`.
-**Why.** Redis 8 ships JSON and Search in core: `MODULE LIST` reports
-`search` and `ReJSON`, and `JSON.SET` plus `FT.CREATE`/`FT.SEARCH` succeed.
-Redis Stack is the legacy packaging. Neither ElastiCache nor MemoryDB exposes
-those modules, so either would break the checkpointer.
-**Consequences.** Managed Redis is ruled out for the AWS phase (4.2.10).
-**Refs.** `d5001dc`, tasks 1.1.3, 3.2.6, 4.2.10.
+### D-005 Exclude amended 10-Ks (2026-10-02)
 
-### D-003: Healthchecks test capability, not liveness
+edgartools includes 10-K/A amendments by default (AAPL has two), so
+`.latest()` could return a short amendment instead of the annual report. We
+pass `amendments=False`.
+`af664d2` · 1.2.3
 
-**Context.** Docker healthchecks gate dependent services.
-**Options.** `redis-cli PING`; grep `MODULE LIST`. For Qdrant: curl `/readyz`.
-**Decision.** Redis checks that `MODULE LIST` contains ReJSON and search.
-Qdrant uses bash's `/dev/tcp` to request `/readyz`.
-**Why.** `redis-cli` exits 0 even on an error reply, so `PING` and even
-`JSON.SET` report healthy on a Redis without modules (verified on
-`redis:7-alpine`). Only the module check fails when it should. The Qdrant
-image has no curl, wget or nc.
-**Refs.** `c3a0bd2`, task 1.1.4.
+### D-006 Live tests are opt-in and cover several companies (2026-10-02)
 
-### D-004: Configuration fails at startup
+Tests that call the SEC are marked `network` and skipped by default, so the
+normal suite runs offline. Each live test runs on several companies, because
+testing only AAPL hid the bug described in D-012.
+`af664d2`, `f4a0f8d`
 
-**Context.** All configuration goes through one `Settings` class.
-**Decision.** A module-level singleton built at import time; field names
-uppercase to match `.env`; `extra="ignore"`; API keys as `SecretStr`.
-**Why.** A missing key fails at startup, not mid-request with a 401.
-`BaseSettings` defaults to `extra="forbid"`, which would reject variables
-already listed in `.env.example` for later phases. `SecretStr` keeps keys out
-of logs and reprs.
-**Consequences.** Importing anything under `finai.config` needs the required
-variables, so `tests/conftest.py` sets them before test collection.
-**Refs.** `6cc6681`, `5ffcac2`, task 0.4.
+### D-007 Archive filings gzipped, separate from the cache (2026-10-04)
 
----
+We keep each filing so a cited claim can be traced to its source. Gzip
+shrinks a filing 14x (AAPL: 1.52 MB to 105 KB), which would put a decade of
+the S&P 500 at about 540 MB instead of 7.5 GB. Metadata is stored per filing
+so a second year can't overwrite the first. The archive (`data/raw/`) is
+separate from edgartools' cache (`data/edgar/`), which is what keeps re-runs
+off the SEC.
+`34e95ac` · 1.2.4
 
-## Fetching filings
+### D-008 Fiscal year comes from `period_of_report` (2026-10-04)
 
-### D-005: Exclude amended 10-Ks
+A company whose year ends in November files its 10-K the following year, so
+using `filing_date` would label its chunks with the wrong year and year
+filters would miss them.
+`34e95ac` · 1.2.4
 
-**Context.** The ingestion pipeline needs "the latest 10-K".
-**Decision.** `get_filings(form="10-K", amendments=False)`.
-**Why.** edgartools defaults to `amendments=True`, which mixes 10-K/A filings
-into the results; AAPL has two. `.latest()` could return an amendment, which
-is often a few pages, instead of the annual report.
-**Refs.** `af664d2`, task 1.2.3.
+### D-009 Ingest several years, filter search by year (2026-10-04)
 
-### D-006: Live-API tests are opt-in and multi-company
+With only the latest 10-K, the agent can't answer "what changed since last
+year". `.latest(n)` returns one filing per year, so ingestion takes a
+`--years` option and 10-K search gets a `fiscal_year` filter. Without the
+filter, chunks from different years mix and answers can't say which year a
+passage is from.
+`f2607f4` · 1.2.19, 1.3.2
 
-**Context.** Some tests must hit the SEC's servers to be meaningful.
-**Decision.** Live tests are marked `network` and deselected by default.
-Every live test runs over several companies, never one.
-**Why.** The default suite stays offline and does not use up EDGAR's rate
-limit. Testing AAPL alone hid a bug that broke every other company checked
-(see D-012).
-**Refs.** `af664d2`, `f4a0f8d`.
+### D-010 Add numeric analysis tools; arithmetic in Python (2026-10-04)
 
-### D-007: Gzipped provenance archive, separate from the cache
+The original plan could report current figures but not trends. We added
+`get_financial_history` and `get_price_history`, which compute growth,
+margins, returns, volatility and drawdown in Python so the verifier can check
+every number. One 10-K already contains three years of figures, so this needs
+no extra fetching.
+`da928cf` · 1.3.22–1.3.25
 
-**Context.** Fetched filings are kept so a cited claim can be traced to the
-exact document.
-**Options.** Plain HTML; gzipped HTML. One metadata file per ticker or per
-filing. Archive and cache in one directory or two.
-**Decision.** `data/raw/<TICKER>/<accession>.html.gz` plus a per-filing
-`<accession>.meta.json` with a sha256 of the original bytes. edgartools' own
-store at `data/edgar/` is the cache that keeps re-runs off the SEC.
-**Why.** HTML compresses 14x (1.52 MB to 105 KB on AAPL): the S&P 500 over a
-decade would be about 540 MB instead of 7.5 GB. Per-filing metadata means a
-second year cannot overwrite the first. The archive exists for provenance and
-the cache for speed, so they are kept apart.
-**Refs.** `34e95ac`, task 1.2.4.
+### D-011 Report, don't recommend (2026-10-04)
 
-### D-008: Fiscal year comes from the period reported
+The agent reports what filings and prices show and never says to buy or
+sell. A recommendation is the one kind of output the verifier can't check
+against a tool result.
+`da928cf` · 1.3.8
 
-**Context.** Every chunk is labelled with a fiscal year and searched by it.
-**Options.** `filing_date`; `period_of_report`.
-**Decision.** `period_of_report`.
-**Why.** They differ for non-calendar year ends. A company whose year ends in
-November files the following year, so `filing_date` would label the chunks
-with the wrong year, and a search filtered by year would silently miss them.
-**Refs.** `34e95ac`, task 1.2.4.
+### D-012 Parse filings without `filing.obj()` (2026-10-06)
 
----
+The plan extracted items with `filing.obj().get("Item 1A")`. That worked on
+AAPL but raised `TypeError` for NVDA, MSFT, GME, RIVN and F, because
+`filing.html()` returns None for most modern filings. We now read the HTML
+with `sgml().html()` and extract items with `parse_html(...).get_sec_section()`.
+It uses the same parser, gives identical text for AAPL, and works for every
+company tested.
+`725ada3` (first version), `f4a0f8d` (fix) · 1.2.5
 
-## Scope of the agent
+### D-013 Finnhub and Alpaca instead of yfinance (2026-10-07)
 
-### D-009: Multi-year ingestion with a year filter
+yfinance scrapes Yahoo unofficially and can break without notice. Finnhub's
+free tier gives real-time US quotes at 60 calls/min. Its price history seems
+to be paid-only: free keys got 403 errors in issues
+[#58](https://github.com/Finnhub-Stock-API/finnhub-python/issues/58) and
+[#64](https://github.com/Finnhub-Stock-API/finnhub-python/issues/64) on its
+Python client, though Finnhub's docs don't say so. Daily prices therefore
+come from Alpaca's free plan (back to 2016, 200 calls/min). Alpha Vantage was
+rejected at 25 calls a day. Task 1.3.1 tests `/stock/candle` with a free key;
+if it works, we drop Alpaca.
+`8d49cbc` · 1.3.1, 1.3.24
 
-**Context.** As planned, ingestion fetched only the latest 10-K, so the
-agent could not answer "what changed since last year?".
-**Decision.** Ingest the latest N 10-Ks per company (`--years`) and add a
-`fiscal_year` filter to 10-K search.
-**Why.** `.latest(n)` returns one filing per fiscal year, each with its own
-accession, so no new API is needed. Without the filter, chunks from several
-years blend together and an answer cannot say which year a passage came from.
-**Refs.** `f2607f4`, tasks 1.2.19, 1.3.2.
+### D-014 Fetch 5 years of prices, compute 1y/3y/5y locally (2026-10-07)
 
-### D-010: Numeric analysis tools, math in Python
+Three years matches the three fiscal years in a 10-K. Five years covers the
+2022 drawdown, which makes volatility and drawdown meaningful. Alpaca's data
+starts in 2016, so ten years isn't available. Five years is about 1,260 rows,
+one request either way. Recently listed companies such as RIVN (2021) have
+less history, so the tool returns the start date it actually used.
+`8d49cbc` · 1.3.24
 
-**Context.** The plan was point-in-time: a live quote, the latest 10-K and
-current portfolio value. Analysis is mostly about what changed and how fast.
-**Decision.** Add `get_financial_history` (three fiscal years of
-fundamentals) and `get_price_history` (return, volatility, drawdown), with
-all arithmetic in Python.
-**Why.** Growth rates and margins computed by the LLM cannot be trusted or
-checked. Computed in Python, every figure can be verified by the verifier
-(1.5.4, 1.5.6). One 10-K already carries three comparative years, so this
-needs no extra fetching.
-**Refs.** `da928cf`, tasks 1.3.22-1.3.25.
+### D-015 Find page headers by position and repetition (2026-10-07)
 
-### D-011: A research tool, not an adviser
-
-**Context.** A finance agent can drift from reporting into recommending.
-**Decision.** The agent reports what filings and prices show and never
-recommends buying or selling.
-**Why.** A recommendation is the one kind of output the verifier cannot check
-against any tool result. Everything else the agent says can be traced to a
-filing, a price or a computation.
-**Refs.** `da928cf`, task 1.3.8.
-
----
-
-## Parsing and cleaning 10-Ks
-
-### D-012: Parse filings without `filing.obj()`
-
-**Context.** The plan extracted items with `filing.obj().get("Item 1A")`.
-It worked for AAPL, the only company tested at first.
-**Options.** `filing.obj()` (edgartools' `TenK`); `parse_html` with
-`get_sec_section`.
-**Decision.** Fetch HTML with `sgml().html()` (falling back to `html()`) and
-extract items with `parse_html(...).get_sec_section("part_i_item_1a")`.
-**Why.** `TenK` reads `filing.html()`, which returns None for most modern
-inline-XBRL filings, so the item lookup raised `TypeError` inside edgartools
-for NVDA, MSFT, GME, RIVN and F. The replacement uses the same parser,
-returns identical text for AAPL, and works for every company checked.
-**Lesson.** A first version that passed on one company was wrong for most.
-This is why D-006 requires several companies per live test.
-**Refs.** `725ada3` (first version), `f4a0f8d` (fix), task 1.2.5.
-
-### D-015: Detect page furniture by position and repetition
-
-**Context.** Extracted sections still contain page numbers, running headers
-and the item heading, which become noise chunks and cut sentences at page
-breaks.
-**Options.** A list of known header strings; detection by position and
-repetition.
-**Decision.** Detect by position and repetition, measured on ten companies
-(AAPL, F, MSFT, NVDA, GME, RIVN, JPM, KO, XOM, WMT). A header is a line that
-follows a page footer at least three times, sits at the top of a page in at
-least 80% of its occurrences, and, if it is a second header line, appears on
-at least half of the pages under the first line.
-**Why.** Every company uses different furniture (`Table of Contents`,
+Extracted sections still contain page numbers, running headers and item
+headings. Each company formats these differently (`Table of Contents`,
 `PART II` + `Item 8`, `Item 1. Business (Continued)`, the company name), so a
-string list breaks on the next company. Repetition alone also flagged things
-that must stay: table column headings (AAPL `2025 2024 2023`) and real
-subsection headings (F `Ford Credit Segment`). The two extra conditions
-separate them. Page breaks cut 120 sentences across the ten filings; those
-are rejoined.
-**Consequences.** Verified by comparing word counts before and after
-cleaning: the only words removed are headers, footers and headings.
-**Refs.** `87249bb`, task 1.2.6.
+list of known strings would fail on the next company. A line counts as a
+header if it appears right after a page number at least 3 times and is at
+the top of a page in at least 80% of its appearances. A second header line
+must also appear on at least half the pages under the first. Without those
+two checks, table column labels (AAPL `2025 2024 2023`) and real subheadings
+(F `Ford Credit Segment`) were removed too. Tested on 10 companies, the only
+words removed were headers, footers and headings. The 120 sentences split by
+page breaks are rejoined.
+`87249bb` · 1.2.6
 
-### D-016: Drop cross-reference sections by length
+### D-016 Drop sections under 1,000 characters (2026-10-07)
 
-**Context.** Some items are present but only point elsewhere, for example
-NVDA's Item 8: "The information required by this Item is set forth in…".
-**Decision.** After cleaning, drop sections under 1,000 characters and report
-them, rather than dropping them silently.
-**Why.** Cross-references reach 777 characters (XOM Item 8); the shortest
-real section is 1,988 (MSFT Item 7A). The threshold sits in that gap.
-Reporting dropped items exposed the problem fixed in D-020.
-**Refs.** `87249bb`, task 1.2.6.
+Some items only point elsewhere, such as NVDA's Item 8: "The information
+required by this Item is set forth in…". The longest such reference we found
+is 777 characters (XOM) and the shortest real section is 1,988 (MSFT Item
+7A), so the cutoff is 1,000. Dropped items are reported, not silently
+removed, which is how we caught D-020.
+`87249bb` · 1.2.6
 
-### D-020: Follow incorporated-by-reference items
+### D-017 Keep tables in chunks, split them table-aware (2026-10-08)
 
-**Context.** JPM and XOM print Item 7 as a pointer ("MD&A appears on pages
-46-160"). Their MD&A came back as 396 and 265 characters and was dropped by
-D-016, so those companies had no MD&A at all.
-**Decision.** Parse with `ParserConfig(form="10-K")`.
-**Why.** Without the form type, edgartools detects no sections and returns
-the item text as printed. With it, the parser follows the reference: JPM
-Item 7 becomes 412,342 characters after cleaning, XOM 127,745. The other
-eight companies come out byte-for-byte identical.
-**Consequences.** JPM's recovered pages use a page footer not seen before
-(the page number at alternating ends), so the footer rule was widened.
-**Refs.** `1e89b7f`, task 1.2.5.
+In a text chunk, a table row like `iPhone  $  209,586  4%  $  201,183` links
+numbers to years only by column position. If a chunk loses the header row,
+the model could report a 2024 figure as 2025. We considered three
+alternatives:
+- Stripping tables would lose breakdowns found nowhere else, and edgartools
+  ignores `include_tables=False` for these sections anyway.
+- Markdown output was worse: `$` and `%` become separate columns, so values
+  shift out from under their years.
+- OCR is covered in D-019.
 
----
+So tables stay in the chunks:
+- A table that fits in one chunk stays whole, with its title, unit and
+  caption.
+- A larger table is split by rows, and each piece repeats the title, unit,
+  header rows and current row group.
+- The cleaner keeps two spaces between cells.
 
-## Financial tables
+In a trial on 10 companies, 88% of tables fit in one chunk, and 99% of table
+chunks with numbers kept their year (about 94% kept their unit). The verifier
+still only checks that a number exists, not its year, so an eval question
+tests for this (6.2.1).
+`32266ee` · 1.2.7, 1.2.9
 
-### D-017: Tables stay in chunks, chunked table-aware
+### D-018 Take headline figures from XBRL; add breakdowns later (2026-10-08)
 
-**Context.** Tables are about 24% of Item 8 text and 8% of MD&A. Flattened to
-text, a figure is tied to its year only by column position:
-`iPhone  $  209,586  4%  $  201,183`. A chunk that loses the heading row loses
-the years, and the model could report a 2024 figure as 2025.
-**Options.** Strip tables from chunks; keep them as plain text; keep them
-with table-aware chunking; render them as Markdown.
-**Decision.** Keep tables in the chunks, with table-aware chunking: a table
-that fits in one chunk is never split, and keeps its title, unit and caption.
-A larger table is split by rows, and every piece repeats the title, unit,
-heading rows and current row-group label. The cleaner keeps two-space gaps
-between cells.
-**Why.** Tables hold breakdowns that appear nowhere else in the structured
-data (revenue by product, segment results, debt maturities), so stripping
-them loses answers. edgartools cannot strip them anyway:
-`text(include_tables=False)` is ignored for these sections. Markdown output
-was worse: `$` and `%` become separate columns, so rows misalign under their
-headings. In a trial over the ten companies, 88% of tables fit whole, and of
-298 table chunks holding figures, 99% kept their year and about 94% their
-unit.
-**Consequences.** The model still matches figures to years by position, and
-the verifier checks that a number exists, not its year. An eval question
-targets this (6.2.1).
-**Refs.** `32266ee`, tasks 1.2.7, 1.2.9.
+10-K numbers carry XBRL tags with their concept, period, unit and dimensions.
+For example, Apple tags iPhone revenue for fiscal 2025 that way. Headline
+figures come from `filing.xbrl().statements`, which worked for all 10
+companies tested. Breakdowns by product or segment will be added to
+`get_financial_history` (1.3.22).
 
-### D-018: Figures come from XBRL; breakdowns later
+We decided against labelling every table cell inside chunks for now. Tagging
+is only required in the financial statements and notes: 78% of Item 8 table
+numbers were tagged but only 48% in MD&A (Apple's MD&A: 0%). Matching
+untagged numbers to tags elsewhere by value was unreliable: only 30% matched
+exactly one tag.
 
-**Context.** Companies tag the numbers in their filings with inline XBRL:
-each figure carries its concept, period, unit, scale and dimensions such as
-product, for example Apple's iPhone revenue for fiscal 2025.
-**Options.** Ignore XBRL; use XBRL for headline statements only; also label
-every table cell in the chunks with its XBRL tag; add XBRL breakdowns as a
-tool.
-**Decision.** Headline figures come from the structured statements
-(`filing.xbrl().statements`) now. Breakdowns by dimension become an extension
-of `get_financial_history` (1.3.22). Labelling table cells inside chunks is
-deferred unless evals show year mistakes.
-**Why.** The structured statements work for all ten companies, including the
-two whose Item 8 is only a cross-reference. Tagging is only required in the
-financial statements and notes: 78% of Item 8 table figures were tagged but
-only 48% of MD&A figures (Apple's MD&A: 0%), so labelling chunks would cover
-only part of the text and cannot replace D-017. Borrowing tags for untagged
-figures by matching values is unsafe: 30% matched one tag, 30% several, 39%
-none. As a tool, XBRL answers breakdown questions with labelled values and
-lets the verifier check the year too.
-**Consequences.** One 10-K has three years of income and cash flow statement
-but only **two** balance sheets, which corrected an assumption in the plan.
-The third year's cash comes from the cash flow statement; the third year's
-debt is reported as unavailable.
-**Refs.** `32266ee`, tasks 1.2.7, 1.3.22, 1.5.4.
+The statements also corrected an assumption in the plan. A 10-K has three
+years of income and cash-flow statements but only two balance sheets, so the
+third year's debt is reported as unavailable.
+`32266ee` · 1.2.7, 1.3.22, 1.5.4
 
-### D-019: No OCR for tables
+### D-019 No OCR (2026-10-08)
 
-**Context.** OCR, including AWS Textract, was proposed for table extraction.
-**Options.** OCR or Textract; parse the HTML directly.
-**Decision.** No OCR. Tables are read from the filing's HTML.
-**Why.** EDGAR 10-Ks are HTML with real tables (58 to 679 `<table>` elements
-per filing, 0 to 15 images, all logos or charts). OCR would render exact text
-to an image and read it back, adding misread digits, without solving the
-actual problem: which year and unit a figure belongs to. Only the XBRL tags
-carry that. Textract also costs $15 per 1,000 pages, about $5,600 for the
-S&P 500 over five years, against a $50-110 project budget.
-**Consequences.** Worth revisiting only for documents that exist as scans or
-images, such as uploaded brokerage statements.
-**Refs.** task 1.2.7.
+OCR and AWS Textract were suggested for tables. 10-Ks are HTML with real
+tables (58–679 per filing, with up to 15 images that are logos or charts).
+OCR would turn exact text into images and read them back, introducing errors
+without solving the real problem, which is knowing each number's year and
+unit. Textract also costs $15 per 1,000 pages, about $5,600 for five years of
+the S&P 500, against a $50–110 project budget. It would only make sense for
+scanned documents.
+1.2.7
 
----
+### D-020 Parse with `form="10-K"` (2026-10-08)
 
-## Market data
-
-### D-013: Finnhub and Alpaca, not yfinance
-
-**Context.** The plan used yfinance for live quotes and price history.
-**Options.** yfinance; Finnhub; Alpaca; Twelve Data; Alpha Vantage.
-**Decision.** Finnhub for live quotes (1.3.1); Alpaca for daily price history
-(1.3.24).
-**Why.** yfinance is an unofficial scraper that can break or be rate-limited
-without notice. Finnhub's free tier gives real-time US quotes at 60
-calls/min. Its price-history endpoint appears paid-only: free keys get 403 in
-user reports on its official Python client (finnhub-python issues
-[#58](https://github.com/Finnhub-Stock-API/finnhub-python/issues/58), 2024,
-and [#64](https://github.com/Finnhub-Stock-API/finnhub-python/issues/64),
-2025). Its docs pages render client-side and its API spec lists no plan
-tiers, so there is no official statement to cite. Alpaca's free plan has daily bars back to
-2016 at 200 calls/min. Alpha Vantage allows 25 calls a day, which one eval run
-would exhaust.
-**Consequences.** Two API keys and two signups. The 403 report is not an
-official statement, so 1.3.1 checks `/stock/candle` with a free key; if it
-returns 200, Alpaca is dropped.
-**Refs.** `8d49cbc`, tasks 0.1.5, 0.1.6, 1.3.1, 1.3.24.
-
-### D-014: Fetch five years of prices, slice locally
-
-**Context.** `get_price_history` needs a lookback period.
-**Options.** 1, 3, 5 or 10 years.
-**Decision.** Always fetch 5 years of adjusted daily bars in one request, and
-compute 1y, 3y and 5y figures from it (default 1y), plus returns per fiscal
-year.
-**Why.** Three years lines up with the three fiscal years in one 10-K. Five
-reaches back past the 2022 drawdown, so volatility and drawdown mean
-something. Ten is past Alpaca's 2016 limit and too old to say much about the
-business today. Five years is about 1,260 rows, one request either way.
-**Consequences.** Short histories (RIVN listed in 2021) yield less than five
-years, so the tool returns the actual start date used.
-**Refs.** `8d49cbc`, task 1.3.24.
+JPM's and XOM's Item 7 just says "MD&A appears on pages 46–160", so D-016
+dropped it and those companies had no MD&A. Parsing with
+`ParserConfig(form="10-K")` makes edgartools follow the reference. JPM's
+Item 7 grew from 396 to 412,342 characters and XOM's from 265 to 127,745.
+The other eight companies came out unchanged.
+`1e89b7f` · 1.2.5
