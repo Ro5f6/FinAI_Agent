@@ -38,7 +38,11 @@ MIN_SECTION_CHARS = 1_000
 # Unicode spaces become ordinary spaces; zero-width characters are removed.
 _SPACES = re.compile(r"[\t\u00a0\u2000-\u200a\u202f\u205f\u3000]")
 _ZERO_WIDTH = re.compile(r"[\u200b\u200c\u200d\u2060\ufeff]")
-_RUN_OF_SPACES = re.compile(r" {2,}")
+# edgartools renders a table row as cells joined by two or more spaces
+# ("iPhone  $  209,586  4%"). Runs collapse to exactly two, not one: one space
+# would erase the cell boundaries that tie each figure to its column (1.2.7).
+_RUN_OF_SPACES = re.compile(r" {3,}")
+_CELL_GAP = "  "
 _RUN_OF_BLANK_LINES = re.compile(r"\n{3,}")
 
 _PAGE_NUMBER = re.compile(r"\d{1,3}")
@@ -63,9 +67,9 @@ class CleanedItems(NamedTuple):
 
 
 def _normalise_lines(text: str) -> list[str]:
-    """Split into lines with Unicode spaces normalised and runs collapsed."""
+    """Split into lines with Unicode spaces normalised and long runs shortened."""
     text = _ZERO_WIDTH.sub("", _SPACES.sub(" ", text))
-    return [_RUN_OF_SPACES.sub(" ", line).strip() for line in text.split("\n")]
+    return [_RUN_OF_SPACES.sub(_CELL_GAP, line).strip() for line in text.split("\n")]
 
 
 def _is_page_marker(lines: list[str], i: int) -> bool:

@@ -34,8 +34,8 @@ def _pages(bodies: list[str], headers: list[list[str]], first_page: int = 1) -> 
 # --- whitespace ------------------------------------------------------------
 
 
-def test_unicode_spaces_become_single_spaces() -> None:
-    raw = "Item 1A.\xa0\xa0\xa0\xa0Risk Factors\n\nNet\xa0sales\u2009rose \u202f 5%.\u200b"
+def test_unicode_spaces_become_ordinary_spaces() -> None:
+    raw = "Item 1A.\xa0\xa0\xa0\xa0Risk Factors\n\nNet\xa0sales\u2009rose 5%.\u200b"
 
     assert clean_section(raw) == "Net sales rose 5%."
 
@@ -48,8 +48,15 @@ def test_paragraph_breaks_and_table_rows_are_preserved() -> None:
 
     assert clean_section(raw) == (
         "First paragraph.\n\nSecond paragraph.\n\n"
-        "Year 2025 2024\nNet sales $ 416,161 $ 391,035"
+        "Year  2025  2024\nNet sales  $  416,161  $  391,035"
     )
+
+
+def test_table_cell_gaps_survive_as_two_spaces() -> None:
+    """One space would erase where one cell ends and the next begins (1.2.7)."""
+    raw = "iPhone\xa0\xa0\xa0$\xa0\xa0209,586     4%    $  201,183"
+
+    assert clean_section(raw) == "iPhone  $  209,586  4%  $  201,183"
 
 
 def test_footnote_rule_lines_are_dropped() -> None:

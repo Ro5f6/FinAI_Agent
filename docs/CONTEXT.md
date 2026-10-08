@@ -9,7 +9,7 @@ per change.
 
 Phase 0 complete except `[HUMAN]` items (0.1.x accounts, and the "skeleton is
 pushed" half of 0.3 — there is still no git remote). Step 1.1 complete. In
-step 1.2, tasks 1.2.1–1.2.6 are done; **1.2.7 is next**.
+step 1.2, tasks 1.2.1–1.2.7 are done; **1.2.8 is next**.
 
 ## Verified library behaviour (edgartools 5.60.0)
 
@@ -45,6 +45,39 @@ step 1.2, tasks 1.2.1–1.2.6 are done; **1.2.7 is next**.
 - The rate limiter is `pyrate_limiter.InMemoryBucket`, **per process** (default
   9/s, SEC caps at 10/s). Parallel workers multiply the rate rather than sharing
   it — the most likely way to get IP-blocked.
+
+## Verified table and XBRL behaviour (edgartools 5.60.0, ten filers)
+
+- `filing.xbrl().statements.income_statement()` / `.balance_sheet()` /
+  `.cash_flow_statement()` work for all ten filers, NVDA and F included. Income
+  and cash flow carry **three** fiscal years; the balance sheet only **two**.
+- `parse_html(html)` with no config detects no sections: `doc.sections` is
+  empty. `ParserConfig(form="10-K")` enables them, and with it
+  `get_sec_section` follows "incorporated by reference" items to the referenced
+  text: JPM Item 7 goes from 396 to 419,380 chars, XOM from 265 to 132,319. NVDA
+  and F are unchanged; their Item 8 stays a cross-reference.
+- `Section.text(include_tables=False)` is **ignored** for these (TOC-detected)
+  sections: output is identical with and without it. Tables cannot be stripped
+  through edgartools.
+- `Section.markdown()` is worse than text for tables: `$` and `%` become their
+  own columns, so rows misalign under the headers, and punctuation is escaped
+  (`10\-K`, `\.`).
+- Table text is one row per line with cells joined by two or more spaces. The
+  cleaner keeps two spaces so cell boundaries survive.
+- `doc.xbrl_facts` returns the inline XBRL facts as a flat list, not linked to
+  table cells. Linking cells to facts means parsing the HTML (lxml): each
+  `ix:nonFraction` carries `name`, `contextRef` (period and dimensions),
+  `unitRef`, `scale` and `sign`.
+- Inline XBRL covers 78% of numeric table cells in Item 8 (91-100% for most
+  filers; JPM 66%, XOM 59%) but only 48% in Item 7 (AAPL 0% to KO 75%), and 0%
+  in Items 1, 1A and 7A. Percentages are not tagged. Apple prints net sales by
+  category twice: the notes copy is tagged, the MD&A copy is not.
+- Borrowing tags for untagged MD&A figures by matching values elsewhere in the
+  filing is unsafe: 30% match one fact, 30% several, 39% none.
+- Table-aware chunking trial (450 tokens, tiktoken): 88% of tables fit whole;
+  of 298 table chunks holding figures, 3 lacked a year and 17 a unit, after
+  attaching captions, merging blank-separated blocks and carrying row-group
+  labels across pieces.
 
 ## Verified 10-K layout (10 filers: AAPL F MSFT NVDA GME RIVN JPM KO XOM WMT)
 
