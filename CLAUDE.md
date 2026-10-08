@@ -1,10 +1,12 @@
 # FinAI-Agent
 
-Autonomous portfolio and investment research agent: LangGraph agent with RAG over SEC 10-K filings (Qdrant), live market data (yfinance), a verifier node, a guarded FastAPI streaming API, deployed to AWS EKS.
+Autonomous portfolio and investment research agent: LangGraph agent with RAG over SEC 10-K filings (Qdrant), live market data (Finnhub quotes, Alpaca price history), a verifier node, a guarded FastAPI streaming API, deployed to AWS EKS.
 
 ## Context
 
-`docs/CONTEXT.md` records build state, library behaviour verified against installed versions, and decisions that depart from `PLAN.md`. Read it before resuming work.
+`docs/CONTEXT.md` records build state and library behaviour verified against installed versions. Read it before resuming work.
+
+`docs/DECISIONS.md` is the public decision log: every design decision with its context, the options weighed, the evidence and the consequences. When a decision is made (a library, an approach, a departure from `PLAN.md`), add an entry in the same commit.
 
 ## The plan
 

@@ -2,8 +2,8 @@
 
 Carries forward what conversation history otherwise would. Facts here were
 verified by running code against the installed versions, not read from docs.
-`PLAN.md` holds task state and inline amendments; `git log` holds the reasoning
-per change.
+`PLAN.md` holds task state and inline amendments; `docs/DECISIONS.md` holds
+the decisions and why; `git log` holds the reasoning per change.
 
 ## State
 
@@ -119,32 +119,10 @@ step 1.2, tasks 1.2.1–1.2.7 are done; **1.2.8 is next**.
 - Persistence confirmed across `docker compose down` + `up` for both services.
   `down -v` would destroy the Redis volume.
 
-## Decisions that depart from PLAN.md
+## Decisions
 
-- Python **3.13**, bounded `>=3.13,<3.14`. The full dependency set resolves
-  identically on 3.12 and 3.13; 3.15 does not resolve (no torch wheels).
-- Filings are archived **gzipped** (`<accession>.html.gz`): 1.52 MB → 105 KB,
-  14x. The S&P 500 back a decade would be ~540 MB rather than 7.5 GB.
-- Metadata is **per filing** (`<accession>.meta.json`), not one per ticker, so a
-  second year cannot overwrite the first.
-- `fiscal_year` comes from **`period_of_report`**, never `filing_date`. They
-  diverge for non-calendar year ends and would mislabel chunks.
-- `data/raw/` is a **provenance archive**; the cache that makes re-runs free is
-  edgartools' own store at `data/edgar/`. They must not share a directory.
-- Market data is **Finnhub** (live quotes, 1.3.1) plus **Alpaca** (daily price
-  history, 1.3.24), not yfinance, which is an unofficial scraper. Finnhub's
-  docs pages render client-side and its `swagger.json` carries no plan tiers,
-  so "price history is paid-only" rests on free-key 403 reports on
-  `/stock/candle` in finnhub-python issues #58 (2024) and #64 (Oct 2025), not
-  an official statement. 1.3.1 settles it with one call; a 200 means drop
-  Alpaca. Alpaca's official docs give the free plan history back to 2016,
-  200 calls/min, latest 15 minutes withheld.
-- Price history fetches **5 years** and slices to 1y/3y/5y: 3y matches the
-  three comparative fiscal years in one 10-K, 5y reaches back past the 2022
-  drawdown, and 10y is past Alpaca's 2016 floor and stale for volatility.
-- This is a **research** tool: it reports what filings and prices show and never
-  recommends buying or selling, because a recommendation is the one output the
-  verifier in 1.5 cannot check against any tool result.
+Design decisions, with the options weighed and the evidence behind each, live
+in `docs/DECISIONS.md`. Record new ones there, not here.
 
 ## Conventions
 
