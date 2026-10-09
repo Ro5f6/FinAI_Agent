@@ -23,6 +23,7 @@ from finai.ingestion.fetch import (
     archive_paths,
     configure_edgar_identity,
     filing_html,
+    filing_meta,
     get_latest_10k,
     read_archived_filing,
 )
@@ -190,6 +191,28 @@ def test_fiscal_year_comes_from_period_not_filing_date(tmp_path: Path) -> None:
     _, metadata = archive_paths("AAPL", filing.accession_no, root=tmp_path)
 
     assert json.loads(metadata.read_text())["fiscal_year"] == 2025  # not 2026
+
+
+def test_filing_meta_describes_the_filing() -> None:
+    meta = filing_meta(_StubFiling(), "aapl")
+
+    assert meta.ticker == "AAPL"
+    assert meta.accession == "0000320193-25-000079"
+    assert meta.form == "10-K"
+    assert meta.filing_date == "2026-02-15"
+    assert meta.period_of_report == "2025-11-30"
+    assert meta.fiscal_year == 2025
+
+
+def test_archive_metadata_matches_filing_meta(tmp_path: Path) -> None:
+    """Chunks and the archive describe a filing from the same source."""
+    filing = _StubFiling()
+
+    archive_filing(filing, "AAPL", root=tmp_path)
+    _, metadata = archive_paths("AAPL", filing.accession_no, root=tmp_path)
+    archived = json.loads(metadata.read_text())
+
+    assert filing_meta(filing, "AAPL")._asdict().items() <= archived.items()
 
 
 def test_archive_skips_download_when_already_cached(tmp_path: Path) -> None:

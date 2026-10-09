@@ -18,6 +18,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+from typing import NamedTuple
 
 import edgar
 from edgar import Company, get_identity, set_identity
@@ -116,6 +117,29 @@ def _fiscal_year(filing: EntityFiling) -> int:
     return int(str(filing.period_of_report)[:4])
 
 
+class FilingMeta(NamedTuple):
+    """The facts about one filing that its chunks and archive record carry."""
+
+    ticker: str
+    accession: str
+    form: str
+    filing_date: str  # ISO date; a datetime.date would not serialise to JSON
+    period_of_report: str
+    fiscal_year: int
+
+
+def filing_meta(filing: EntityFiling, ticker: str) -> FilingMeta:
+    """Describe ``filing``, upper-casing ``ticker`` so "aapl" and "AAPL" agree."""
+    return FilingMeta(
+        ticker=ticker.upper(),
+        accession=filing.accession_no,
+        form=filing.form,
+        filing_date=filing.filing_date.isoformat(),
+        period_of_report=str(filing.period_of_report),
+        fiscal_year=_fiscal_year(filing),
+    )
+
+
 def archive_paths(
     ticker: str, accession: str, root: Path | None = None
 ) -> tuple[Path, Path]:
@@ -146,13 +170,7 @@ def archive_filing(filing: EntityFiling, ticker: str, root: Path | None = None) 
     metadata.write_text(
         json.dumps(
             {
-                "ticker": ticker.upper(),
-                "accession": accession,
-                "form": filing.form,
-                # filing_date is a datetime.date, which json cannot serialise.
-                "filing_date": filing.filing_date.isoformat(),
-                "period_of_report": str(filing.period_of_report),
-                "fiscal_year": _fiscal_year(filing),
+                **filing_meta(filing, ticker)._asdict(),
                 # Lets the archive be pruned and later re-fetched from EDGAR
                 # with proof the bytes are identical.
                 "sha256": hashlib.sha256(payload).hexdigest(),

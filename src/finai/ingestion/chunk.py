@@ -32,8 +32,10 @@ from typing import NamedTuple
 
 import tiktoken
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+from pydantic import BaseModel, ConfigDict
 
 from finai.config import settings
+from finai.ingestion.fetch import FilingMeta
 
 ENCODING = "cl100k_base"
 
@@ -268,3 +270,50 @@ def chunk_section(
 
     flush(carry_overlap=False)
     return chunks
+
+
+class ChunkPayload(BaseModel):
+    """One chunk and the filing facts stored with it in Qdrant.
+
+    ``fiscal_year`` is an integer so year filters use Qdrant's integer index
+    (1.2.14). ``chunk_index`` counts within its section, matching the point ID
+    ``accession:section:index`` (1.2.11).
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    ticker: str
+    form: str
+    fiscal_year: int
+    filing_date: str
+    section: str
+    chunk_index: int
+    accession: str
+    text: str
+
+
+def chunk_filing(
+    meta: FilingMeta,
+    sections: dict[str, str],
+    max_tokens: int | None = None,
+    overlap_tokens: int | None = None,
+) -> list[ChunkPayload]:
+    """Chunk every cleaned section of one filing and attach its metadata.
+
+    ``sections`` maps item labels (``"Item 1A"``) to cleaned text, as
+    ``clean_items`` returns them.
+    """
+    return [
+        ChunkPayload(
+            ticker=meta.ticker,
+            form=meta.form,
+            fiscal_year=meta.fiscal_year,
+            filing_date=meta.filing_date,
+            section=section,
+            chunk_index=index,
+            accession=meta.accession,
+            text=text,
+        )
+        for section, body in sections.items()
+        for index, text in enumerate(chunk_section(body, max_tokens, overlap_tokens))
+    ]

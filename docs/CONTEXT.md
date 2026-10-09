@@ -9,7 +9,7 @@ the decisions and why; `git log` holds the reasoning per change.
 
 Phase 0 complete except `[HUMAN]` items (0.1.x accounts, and the "skeleton is
 pushed" half of 0.3 — there is still no git remote). Step 1.1 complete. In
-step 1.2, tasks 1.2.1–1.2.9 are done; **1.2.10 is next**.
+step 1.2, tasks 1.2.1–1.2.10 are done; **1.2.11 is next**.
 
 ## Verified library behaviour (edgartools 5.60.0)
 

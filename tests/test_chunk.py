@@ -9,7 +9,13 @@ from itertools import pairwise
 
 import pytest
 
-from finai.ingestion.chunk import chunk_section, count_tokens
+from finai.ingestion.chunk import (
+    ChunkPayload,
+    chunk_filing,
+    chunk_section,
+    count_tokens,
+)
+from finai.ingestion.fetch import FilingMeta
 
 _SENTENCE = "The Company depends on component suppliers located outside the US. "
 
@@ -189,7 +195,82 @@ def test_defaults_come_from_settings() -> None:
     assert max(count_tokens(c) for c in chunks) > settings.CHUNK_TOKENS * 0.8
 
 
+# --- payload ----------------------------------------------------------------
+
+_META = FilingMeta(
+    ticker="AAPL",
+    accession="0000320193-25-000079",
+    form="10-K",
+    filing_date="2025-10-31",
+    period_of_report="2025-09-27",
+    fiscal_year=2025,
+)
+
+
+def test_payload_carries_the_planned_fields() -> None:
+    [payload] = chunk_filing(_META, {"Item 1A": "Supply risk."}, 100, 10)
+
+    assert payload.model_dump() == {
+        "ticker": "AAPL",
+        "form": "10-K",
+        "fiscal_year": 2025,
+        "filing_date": "2025-10-31",
+        "section": "Item 1A",
+        "chunk_index": 0,
+        "accession": "0000320193-25-000079",
+        "text": "Supply risk.",
+    }
+
+
+def test_chunk_index_restarts_in_each_section() -> None:
+    sections = {"Item 1A": _prose(60, "A "), "Item 7": _prose(60, "B ")}
+
+    payloads = chunk_filing(_META, sections, max_tokens=80, overlap_tokens=10)
+
+    for section, body in sections.items():
+        mine = [p for p in payloads if p.section == section]
+        assert [p.chunk_index for p in mine] == list(range(len(mine)))
+        assert [p.text for p in mine] == chunk_section(body, 80, 10)
+
+
+def test_payload_is_immutable() -> None:
+    [payload] = chunk_filing(_META, {"Item 1": "Business."}, 100, 10)
+
+    with pytest.raises(ValueError):
+        payload.fiscal_year = 2024  # type: ignore[misc]
+
+
+def test_payload_rejects_a_non_integer_year() -> None:
+    """Year filters use Qdrant's integer index (1.2.14)."""
+    with pytest.raises(ValueError):
+        ChunkPayload(**{**_payload_fields(), "fiscal_year": "FY2025"})
+
+
+def _payload_fields() -> dict[str, object]:
+    return chunk_filing(_META, {"Item 1": "Business."}, 100, 10)[0].model_dump()
+
+
 # --- live filings -----------------------------------------------------------
+
+
+@pytest.mark.network
+def test_chunk_filing_against_a_live_filing() -> None:
+    from finai.ingestion.clean import clean_items
+    from finai.ingestion.fetch import filing_meta, get_latest_10k
+    from finai.ingestion.parse import extract_filing_items
+
+    filing = get_latest_10k("AAPL")
+    sections = clean_items(extract_filing_items(filing)).sections
+
+    payloads = chunk_filing(filing_meta(filing, "AAPL"), sections)
+
+    assert {p.section for p in payloads} == set(sections)
+    assert {(p.ticker, p.form, p.accession) for p in payloads} == {
+        ("AAPL", "10-K", filing.accession_no)
+    }
+    assert {p.fiscal_year for p in payloads} == {int(str(filing.period_of_report)[:4])}
+    keys = [(p.section, p.chunk_index) for p in payloads]
+    assert len(keys) == len(set(keys))
 
 
 @pytest.mark.network
