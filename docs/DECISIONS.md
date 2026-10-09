@@ -259,3 +259,22 @@ Chunks are 1,000 tokens with 100 overlap, the plan's size for long-context
 models. That halves the vectors against 450-token chunks (about 48k for the
 S&P 500) at the cost of more filing text per search sent to the LLM.
 1.2.8
+
+### D-024 Chunk with our own table rules, tiktoken counts (2026-10-09)
+
+The plan named LangChain's `RecursiveCharacterTextSplitter`, which treats a
+table as text and would cut it between any two lines. Our code packs
+paragraphs and keeps tables whole or splits them by rows with repeated
+headings (D-017); the LangChain splitter only cuts prose paragraphs longer
+than a chunk, at sentence ends. Consecutive chunks share up to 100 tokens of
+whole sentences. Table rows are never repeated as overlap, since split tables
+already repeat their headings.
+
+The plan also said to count tokens with the embedding model's tokenizer,
+because 512-token models silently truncate. voyage-4 takes 32,000 tokens, so
+we count with tiktoken: fast and offline. Voyage counts 8.6% more on our
+filings, so a 1,000-token chunk is about 1,086 of its tokens.
+
+On ten filings, chunks keep the table's year in 99.4% and its unit in 98.9%
+of cases, against the trial's 99% and about 94%.
+1.2.9

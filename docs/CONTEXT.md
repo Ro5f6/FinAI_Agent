@@ -9,7 +9,7 @@ the decisions and why; `git log` holds the reasoning per change.
 
 Phase 0 complete except `[HUMAN]` items (0.1.x accounts, and the "skeleton is
 pushed" half of 0.3 — there is still no git remote). Step 1.1 complete. In
-step 1.2, tasks 1.2.1–1.2.8 are done; **1.2.9 is next**.
+step 1.2, tasks 1.2.1–1.2.9 are done; **1.2.10 is next**.
 
 ## Verified library behaviour (edgartools 5.60.0)
 
@@ -122,6 +122,21 @@ step 1.2, tasks 1.2.1–1.2.8 are done; **1.2.9 is next**.
 - A shell that has sourced `.env` exports `EMBEDDING_MODEL`, which overrides
   `.env` and the `Settings` default. After the switch, the terminal running
   this session still had `BAAI/bge-small-en-v1.5` and the API rejected it.
+
+## Verified chunking behaviour (langchain-text-splitters 1.1.3, tiktoken 0.14.0)
+
+- `RecursiveCharacterTextSplitter.from_tiktoken_encoder` defaults to the
+  **`gpt2`** encoding; pass `encoding_name="cl100k_base"`. `chunk_size` and
+  `chunk_overlap` go through `**kwargs` to `TextSplitter`.
+- With `separators=["\n", ". ", ...]` and `keep_separator="end"` it splits at
+  sentence ends and overlaps by whole sentences.
+- On the ten filings at 1,000/100 tokens: 1,055 chunks, largest 999 tokens,
+  710 tables of which 31 (4.4%) are split, 0.6 s for all ten. Against what each
+  table had in the filing, chunks keep the year in 99.4% (679/683) and the unit
+  in 98.9% (659/666). The losses are JPM tables printed across pages, where
+  only the first page carries "(in millions)".
+- A unit check that only matches "in millions" reports 72%: many tables say
+  `($M)` or "millions of dollars" (XOM), or are counts with no money unit.
 
 ## Verified infrastructure
 
