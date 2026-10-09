@@ -11,6 +11,7 @@ from finai.config.settings import Settings
 REQUIRED_ENV = {
     "ANTHROPIC_API_KEY": "sk-ant-test",
     "SEC_IDENTITY": "Test User test@example.com",
+    "VOYAGE_API_KEY": "pa-test",
 }
 
 
@@ -49,7 +50,11 @@ def test_applies_defaults_when_unset(clean_env: pytest.MonkeyPatch) -> None:
     assert settings.QDRANT_URL == "http://localhost:6333"
     assert settings.REDIS_URL == "redis://localhost:6379"
     assert settings.COLLECTION_NAME == "sec_filings"
-    assert settings.EMBEDDING_MODEL == "BAAI/bge-small-en-v1.5"
+    assert settings.EMBEDDING_MODEL == "voyage-4"
+    assert settings.EMBEDDING_DIM == 1024
+    assert settings.CHUNK_TOKENS == 1_000
+    assert settings.CHUNK_OVERLAP_TOKENS < settings.CHUNK_TOKENS
+    assert settings.CHUNK_TOKENS < settings.EMBEDDING_MAX_TOKENS
     assert settings.LLM_MODEL == "claude-sonnet-5"
     assert settings.MAX_AGENT_LOOPS == 6
     assert settings.LANGSMITH_TRACING is False
@@ -83,6 +88,7 @@ def test_api_keys_are_not_exposed_in_repr(clean_env: pytest.MonkeyPatch) -> None
     settings = Settings(_env_file=None)
 
     assert "sk-ant-test" not in repr(settings)
+    assert "pa-test" not in repr(settings)
     assert settings.ANTHROPIC_API_KEY.get_secret_value() == "sk-ant-test"
 
 

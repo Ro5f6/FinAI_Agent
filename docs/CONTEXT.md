@@ -9,7 +9,7 @@ the decisions and why; `git log` holds the reasoning per change.
 
 Phase 0 complete except `[HUMAN]` items (0.1.x accounts, and the "skeleton is
 pushed" half of 0.3 — there is still no git remote). Step 1.1 complete. In
-step 1.2, tasks 1.2.1–1.2.7 are done; **1.2.8 is next**.
+step 1.2, tasks 1.2.1–1.2.8 are done; **1.2.9 is next**.
 
 ## Verified library behaviour (edgartools 5.60.0)
 
@@ -102,6 +102,26 @@ step 1.2, tasks 1.2.1–1.2.7 are done; **1.2.8 is next**.
   number at either end of a `Form 10-K` line.
 - Cross-references reach 777 chars (XOM Item 8); the shortest real section is
   1,988 (MSFT Item 7A). `MIN_SECTION_CHARS = 1_000`, measured after cleaning.
+
+## Verified Voyage AI behaviour (voyageai 0.5.0, 2026-10-09)
+
+- `Client(api_key=...).embed(texts, model=, input_type=, truncation=True,
+  output_dimension=)`. `input_type` is `"query"`, `"document"` or None; the
+  API prepends its own retrieval prompt for each, so no prefixes in our code.
+- voyage-4 returns 1024 dims by default (256, 512, 2048 also offered).
+  Per request: at most 1,000 texts and 320K tokens (voyage-finance-2: 120K).
+- Without a payment method: 3 requests and 10K tokens per minute, enforced
+  with `RateLimitError` whose message states the limit. After adding one, a
+  22K-token request went through immediately. Free tokens still apply.
+- `Client.count_tokens(texts, model=)` runs locally with a tokenizer
+  downloaded from Hugging Face on first use. On the ten filings it counts
+  8.6% more tokens than tiktoken `cl100k_base` for voyage-4 (928k vs 855k)
+  and 18% more for voyage-finance-2.
+- Query latency from a laptop: median 172 ms (voyage-4), 204 ms
+  (voyage-finance-2) over 10 calls.
+- A shell that has sourced `.env` exports `EMBEDDING_MODEL`, which overrides
+  `.env` and the `Settings` default. After the switch, the terminal running
+  this session still had `BAAI/bge-small-en-v1.5` and the API rejected it.
 
 ## Verified infrastructure
 

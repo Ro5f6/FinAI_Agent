@@ -237,3 +237,25 @@ or 48k chunks with 1,000-token chunks. It costs nothing with a local model (abou
 hours on a laptop with bge-small) and fits the free tiers of the hosted ones.
 The index is built once and restored into each cluster from a snapshot.
 1.3.31–1.3.33, 4.2.14
+
+### D-023 Embed with voyage-4, 1,000-token chunks (2026-10-09)
+
+Eight models answered 18 questions over ten 10-Ks
+([evaluation](evals/embedding-models.md)). voyage-4 had the answer in the top
+5 for 15; the best local model, nomic-embed-text-v1.5, for 13; bge-small,
+the plan's default, for 10. voyage-finance-2 scored 13, below Voyage's
+general model, so the finance version adds nothing on our data. voyage-4
+scored 15 on both 450- and 1,000-token chunks, so its lead isn't from the
+bigger chunks.
+
+The margin over nomic is two questions, which could be chance. Memory
+decided it: the API pod has 1.5–2 GiB and also loads LLM Guard's model.
+nomic needs 902 MB to serve queries, the Voyage client about 100 MB. The
+costs are an API call per search (172 ms median) and a dependency on
+Voyage's service. Embedding the S&P 500 (about 40M tokens) fits in the free
+200M tokens.
+
+Chunks are 1,000 tokens with 100 overlap, the plan's size for long-context
+models. That halves the vectors against 450-token chunks (about 48k for the
+S&P 500) at the cost of more filing text per search sent to the LLM.
+1.2.8

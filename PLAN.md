@@ -22,7 +22,7 @@ FinAI-Agent is an autonomous portfolio and investment research agent: it answers
 | Language / packaging | Python 3.13, uv, ruff, pytest |
 | Config | pydantic-settings, `.env` |
 | Filings | EdgarTools (SEC EDGAR) |
-| Embeddings | FastEmbed |
+| Embeddings | Voyage AI `voyage-4` (hosted API) |
 | Vector DB (long-term memory) | Qdrant |
 | Agent state (short-term memory) | Redis 8 (JSON + Search in core) + langgraph-checkpoint-redis |
 | Agent framework | LangGraph + LangChain tools |
@@ -72,7 +72,8 @@ finai-agent/
 
 ### Known gotchas (already handled in the tasks below)
 
-- FastEmbed's default model (`BAAI/bge-small-en-v1.5`) truncates input at 512 tokens, so chunk size must match the embedding model.
+- Chunk size must match the embedding model's context: 512-token models (FastEmbed's default `BAAI/bge-small-en-v1.5`) truncate longer chunks silently. voyage-4 takes 32,000 tokens; chunks are \~1,000 (1.2.8).
+- Voyage keys without a payment method are limited to 3 requests and 10K tokens per minute, which makes a 10-filing ingest take about 95 minutes. Free tokens still apply once a payment method is added.
 - The LangGraph Redis checkpointer needs both RedisJSON and RediSearch: it stores each checkpoint as a JSON document and looks it up by `thread_id` through a search index. Redis 8 ships both in core, so the official `redis:8-alpine` is enough and `redis/redis-stack-server` is the legacy path. Plain `redis:7-alpine` has neither and fails late, at `ERR unknown command 'JSON.SET'`, long after `PING` returns `PONG`.
 - Qdrant and Redis must also be deployed in Kubernetes and EKS, not only in docker compose.
 - The prompt-injection scanner won't reliably catch off-topic requests; a separate topic check is needed.
@@ -92,9 +93,10 @@ Plan for about **$50–110 out of pocket** for the whole build, mostly LLM usage
 | AWS while running (EKS, 2 nodes, NAT, ALB, IPs) | \~$0.35/hour |
 | AWS in sessions (\~40 h/month, destroyed in between) | \~$20/month, covered by credits |
 | AWS left on 24/7 (avoid) | \~$210–270/month |
+| Embeddings (voyage-4, $0.06 per 1M tokens after 200M free) | \~$0 |
 | Domain (one-time) | \~$15 |
 
-Cost rules for the coding agent: embeddings and guardrails run locally (no per-query cost); never schedule nightly eval runs; use Haiku as the eval judge; never leave AWS resources running after a session.
+Cost rules for the coding agent: guardrails run locally; embeddings use Voyage's free tokens (200M for voyage-4, about 40M needed for the S&P 500); never schedule nightly eval runs; use Haiku as the eval judge; never leave AWS resources running after a session.
 
 ## Phase 0: Foundations
 
@@ -170,17 +172,17 @@ Goal: on a laptop, the agent ingests 10-K filings, pulls live prices, and answer
 
 #### Chunk
 
-- [ ] 1.2.8 Choose the embedding model and record its max tokens and vector dimension in settings. 512-token model → 400–500 token chunks, 50–80 overlap. Long-context model (e.g., `nomic-embed-text-v1.5`) → \~1,000-token chunks.
+- [x] 1.2.8 Choose the embedding model and record its max tokens and vector dimension in settings. 512-token model → 400–500 token chunks, 50–80 overlap. Long-context model (e.g., `nomic-embed-text-v1.5`) → \~1,000-token chunks.
 - [ ] 1.2.9 Split with `RecursiveCharacterTextSplitter.from_tiktoken_encoder(...)` so sizes are measured in tokens. Measure with the embedding model's own tokenizer where it differs from tiktoken (1.2.8), since it may split figures into more tokens. Make the split table-aware (1.2.7): a table block is consecutive lines whose cells are separated by two spaces. Never split a table that fits in one chunk; attach the short title, unit and caption paragraphs above it; merge table blocks separated only by a blank line; split an oversized table by rows, repeating title, unit, heading rows and the current row-group label (`2024`, `Level 1:`) on every piece. Avoid two failure modes seen in the trial: a statement footer ("See accompanying Notes...") taken as the next table's caption, and a label row with no figures (`Net sales:`) taken as a heading row. Target from the trial: table chunks with figures keep their year (99%) and unit (about 94%).
 - [ ] 1.2.10 Attach payload to each chunk: `ticker`, `form`, `fiscal_year`, `filing_date`, `section`, `chunk_index`, `accession`, `text`.
 - [ ] 1.2.11 Compute a deterministic ID: `uuid5(namespace, f"{accession}:{section}:{index}")`, so re-runs overwrite instead of duplicating.
 
 #### Embed and store
 
-- [ ] 1.2.12 `uv add fastembed qdrant-client`.
+- [ ] 1.2.12 `uv add voyageai qdrant-client`. Embed documents with `input_type="document"` and queries with `input_type="query"`; Voyage adds its own retrieval prompts for each, so no prefixes in our code.
 - [ ] 1.2.13 Create collection `sec_filings` if missing: vector size from settings, cosine distance.
 - [ ] 1.2.14 Create payload indexes: `ticker` (keyword), `fiscal_year` (integer), `section` (keyword).
-- [ ] 1.2.15 Embed and upsert in batches of 64–256.
+- [ ] 1.2.15 Embed and upsert in batches. Voyage caps a request at 1,000 texts and 320K tokens for voyage-4; batch by token count with `count_tokens`, and retry on `RateLimitError`.
 
 #### Verify
 
@@ -389,7 +391,7 @@ Goal: one immutable, non-root image runs the full stack on a local Kind cluster,
 
 - [ ] 3.1.1 `.dockerignore`: `.env`, `data/`, `.git`, `tests/`, `.venv/`, caches.
 - [ ] 3.1.2 Builder stage on `python:3.13-slim`: copy `pyproject.toml` and lockfile first (layer cache), then `uv sync --frozen --no-dev` into a venv.
-- [ ] 3.1.3 In the builder, pre-download FastEmbed and LLM Guard models to a fixed directory; point to it with env vars so runtime never downloads.
+- [ ] 3.1.3 In the builder, pre-download the LLM Guard model and Voyage's tokenizer (used by `count_tokens`, fetched from Hugging Face) to a fixed directory; point to it with env vars so runtime never downloads.
 - [ ] 3.1.4 Runtime stage: slim base; copy venv, models and `src/`; `useradd -u 10001 app`; `USER 10001`.
 - [ ] 3.1.5 Entrypoint: `uvicorn finai.api.main:app --host 0.0.0.0 --port 8000`, one worker (scale with pods).
 - [ ] 3.1.6 Build with a version tag (`finai-api:0.3.0`); record image size.
@@ -415,7 +417,7 @@ Goal: one immutable, non-root image runs the full stack on a local Kind cluster,
 #### App manifests (Kustomize `k8s/base`)
 
 - [ ] 3.2.7 ConfigMap: `QDRANT_URL`, `REDIS_URL`, model names, `MAX_AGENT_LOOPS`.
-- [ ] 3.2.8 Secret: real `secret.yaml` gitignored; commit `secret.example.yaml` with placeholders.
+- [ ] 3.2.8 Secret: real `secret.yaml` gitignored; commit `secret.example.yaml` with placeholders. Include `VOYAGE_API_KEY`: without it every 10-K search fails.
 - [ ] 3.2.9 Deployment: 2 replicas; memory request/limit \~1.5–2 GiB; `startupProbe` for model load; `readinessProbe` `/readyz`; `livenessProbe` `/healthz`; `runAsNonRoot: true`; `maxUnavailable: 0`, `maxSurge: 1`; `terminationGracePeriodSeconds` covering the longest stream.
 - [ ] 3.2.10 `preStop` hook sleeping \~10 s so endpoints drain before shutdown.
 - [ ] 3.2.11 Service: ClusterIP, port 80 → 8000.

@@ -45,9 +45,34 @@ class Settings(BaseSettings):
     )
 
     # --- Embeddings ---
+    # voyage-4 won the 18-question evaluation (docs/evals/embedding-models.md)
+    # and needs ~100 MB in the API pod against ~900 MB for the best local model.
+    VOYAGE_API_KEY: SecretStr = Field(
+        description="Voyage AI API key. Required: every 10-K search embeds its query through it.",
+    )
     EMBEDDING_MODEL: str = Field(
-        default="BAAI/bge-small-en-v1.5",
-        description="FastEmbed model. Truncates at 512 tokens, so chunk size must match.",
+        default="voyage-4",
+        description="Voyage embedding model. Changing it means re-embedding the collection.",
+    )
+    EMBEDDING_MAX_TOKENS: int = Field(
+        default=32_000,
+        ge=1,
+        description="Model context length in its own tokens; longer input is truncated by the API.",
+    )
+    EMBEDDING_DIM: int = Field(
+        default=1024,
+        ge=1,
+        description="Vector size; sets the Qdrant collection's size. voyage-4 also offers 256, 512, 2048.",
+    )
+    CHUNK_TOKENS: int = Field(
+        default=1_000,
+        ge=1,
+        description="Target chunk size. Long-context model, so ~1,000 tokens rather than 400-500.",
+    )
+    CHUNK_OVERLAP_TOKENS: int = Field(
+        default=100,
+        ge=0,
+        description="Tokens shared between consecutive chunks, about 10% of CHUNK_TOKENS.",
     )
 
     # --- Agent state ---
