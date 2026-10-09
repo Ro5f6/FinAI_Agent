@@ -132,9 +132,16 @@ step 1.2, tasks 1.2.1–1.2.10 are done; **1.2.11 is next**.
   sentence ends and overlaps by whole sentences.
 - On the ten filings at 1,000/100 tokens: 1,055 chunks, largest 999 tokens,
   710 tables of which 31 (4.4%) are split, 0.6 s for all ten. Against what each
-  table had in the filing, chunks keep the year in 99.4% (679/683) and the unit
+  table had in the filing, chunks keep the year in 99.6% (680/683) and the unit
   in 98.9% (659/666). The losses are JPM tables printed across pages, where
   only the first page carries "(in millions)".
+- "Some year in the chunk" is too weak a check. AAPL Note 4 nests `Level 1:`
+  and `Level 2 (1):` inside `2025` and `2024`, and its caption names both
+  years, so a continuation piece of 2024 rows passed while labelled only
+  `Level 1: (continued)` (also the wrong level: `(1` read as a negative
+  figure). 7 of the 9 continuation pieces in year-grouped tables (AAPL, MSFT,
+  JPM x3, KO, XOM) lacked their year. Now each repeats its year and inner
+  label; the live test checks each piece names the year of its first row.
 - A unit check that only matches "in millions" reports 72%: many tables say
   `($M)` or "millions of dollars" (XOM), or are counts with no money unit.
 

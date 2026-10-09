@@ -9,6 +9,7 @@ from itertools import pairwise
 
 import pytest
 
+import finai.ingestion.chunk as chunk_module
 from finai.ingestion.chunk import (
     ChunkPayload,
     chunk_filing,
@@ -102,6 +103,57 @@ def test_oversized_table_pieces_repeat_caption_headings_and_group() -> None:
         assert label is not None
         first_row = re.search(r"Line item (\d+)-", piece)
         assert first_row is not None and first_row.group(1) == label.group(1)
+
+
+def _nested_table() -> str:
+    """AAPL Note 4's layout: a year around Level labels, one with a footnote."""
+    lines = ["Adjusted  Fair  Current", "Cost  Value  Securities"]
+    for year in ("2025", "2024"):
+        lines += [year, "Level 1:"]
+        lines += [f"Fund {year}-{i}  {i},{100 + i}  {i},{200 + i}  —" for i in range(8)]
+        lines.append("Level 2 (1):")
+        lines += [
+            f"Bond {year}-{i}  {i},{300 + i}  ({i})  {i},{400 + i}" for i in range(8)
+        ]
+    caption = "The following tables show securities as of 2025 and 2024 (in millions):"
+    return caption + "\n\n" + "\n".join(lines)
+
+
+def _year_of_rows(table: str) -> dict[str, str]:
+    year = ""
+    owner = {}
+    for row in table.split("\n"):
+        if row in ("2025", "2024"):
+            year = row
+        owner[row] = year
+    return owner
+
+
+def test_continuation_pieces_name_their_year_and_level() -> None:
+    table = _nested_table()
+    owner = _year_of_rows(table)
+
+    chunks = chunk_section(table, max_tokens=110, overlap_tokens=0)
+
+    assert len(chunks) > 3
+    for piece in chunks[1:]:
+        data = [r for r in piece.split("\n") if r.startswith(("Fund", "Bond"))]
+        year = owner[data[0]]
+        assert year in piece.split("\n") or f"{year} (continued)" in piece
+        # The level label is the one above the piece's first data row.
+        expected = "Level 1:" if data[0].startswith("Fund") else "Level 2 (1):"
+        assert expected in piece
+        other = "Level 2 (1):" if expected == "Level 1:" else "Level 1:"
+        if other in piece:
+            assert piece.index(other) > piece.index(data[0])
+
+
+def test_footnote_marker_does_not_hide_a_label() -> None:
+    """``Level 2 (1):`` once read as a data row, so pieces after it still said
+    ``Level 1: (continued)``."""
+    chunks = chunk_section(_nested_table(), max_tokens=110, overlap_tokens=0)
+
+    assert any("Level 2 (1): (continued)" in c for c in chunks)
 
 
 def test_every_table_row_survives_splitting() -> None:
@@ -293,3 +345,33 @@ def test_chunk_live_filings(ticker: str) -> None:
                     assert any(line in c for c in chunks), (
                         f"{ticker} {item}: {line[:60]}"
                     )
+        _assert_pieces_name_their_year(text, f"{ticker} {item}")
+
+
+def _assert_pieces_name_their_year(text: str, where: str) -> None:
+    """Each continuation piece of a split table names the year of its rows."""
+    for unit in chunk_module._units(text):
+        if not unit.is_table:
+            continue
+        pieces = chunk_module._split_table(unit, 1_000)
+        heading = chunk_module._heading_rows(unit.rows)
+        prefix = chunk_module._table_text(unit.caption, heading)
+        body = unit.rows[len(heading) :]
+        years, year = [], None
+        for row in body:
+            if chunk_module._YEAR_LABEL.fullmatch(row):
+                year = row
+            years.append(year)
+        start = 0
+        for piece in pieces[1:]:
+            lines = piece.split("\n")
+            # Skip the repeated caption and headings: AAPL and others reprint
+            # their headings mid-table, so those lines also occur in the body.
+            own = piece.removeprefix(prefix).split("\n")
+            first = next(r for r in own if r and not r.endswith("(continued)"))
+            start = body.index(first, start)
+            owner = years[start]
+            if owner:
+                assert owner in lines or f"{owner} (continued)" in lines, (
+                    f"{where}: piece at {first[:40]!r} lacks {owner}"
+                )

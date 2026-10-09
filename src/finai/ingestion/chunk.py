@@ -55,6 +55,11 @@ _STATEMENT_FOOTER = re.compile(
 )
 _PARAGRAPH_BREAK = "\n\n"
 _SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
+# Footnote markers on a label: "Level 2 (1):". Without stripping them, "(1"
+# reads as a negative figure and the label is taken for a data row.
+_FOOTNOTE_MARK = re.compile(r"\s*\(\d{1,2}\)")
+# A group label that is a year or date: the outer level of nested groups.
+_YEAR_LABEL = re.compile(r"(?:[A-Z][a-z]+ \d{1,2}, )?(?:19|20)\d{2}:?")
 
 
 class _Unit(NamedTuple):
@@ -138,12 +143,18 @@ def _heading_rows(rows: tuple[str, ...]) -> tuple[str, ...]:
 
 
 def _is_group_label(row: str) -> bool:
-    """A row naming a block of rows (``2024``, ``Level 1:``), not holding data."""
-    return not _CELL_GAP.search(row) and not _FIGURE.search(row)
+    """A row naming a block of rows (``2024``, ``Level 2 (1):``), not holding data."""
+    return not _CELL_GAP.search(row) and not _FIGURE.search(_FOOTNOTE_MARK.sub("", row))
 
 
 def _split_table(unit: _Unit, max_tokens: int) -> list[str]:
-    """Split a table between rows; each piece repeats caption, headings, group."""
+    """Split a table between rows; each piece repeats caption, headings, groups.
+
+    Groups nest two deep: a year or date (``2024``, ``December 31, 2024``)
+    around other labels (``Level 1:``). A piece that starts inside a group
+    repeats both, so its rows are never read under the wrong year (AAPL
+    Note 4, MSFT, JPM, KO and XOM statements).
+    """
     if count_tokens(unit.text) <= max_tokens:
         return [unit.text]
     heading = _heading_rows(unit.rows)
@@ -151,16 +162,21 @@ def _split_table(unit: _Unit, max_tokens: int) -> list[str]:
     pieces: list[str] = []
     rows: list[str] = []
     used = fixed
+    year: str | None = None
     group: str | None = None
     for row in unit.rows[len(heading) :]:
         cost = count_tokens(row) + 1
         if rows and used + cost > max_tokens:
             pieces.append(_table_text(unit.caption, [*heading, *rows]))
-            rows = (
-                [f"{group} (continued)"] if group and not _is_group_label(row) else []
-            )
+            rows = []
+            if year and not _YEAR_LABEL.fullmatch(row):
+                rows.append(f"{year} (continued)")
+            if group and not _is_group_label(row):
+                rows.append(f"{group} (continued)")
             used = fixed + sum(count_tokens(r) + 1 for r in rows)
-        if _is_group_label(row):
+        if _YEAR_LABEL.fullmatch(row):
+            year, group = row, None
+        elif _is_group_label(row):
             group = row
         rows.append(row)
         used += cost
