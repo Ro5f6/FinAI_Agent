@@ -264,6 +264,20 @@ Streams is the queue, so nothing new is deployed.
 - [ ] 1.3.29 Limit new tickers per user per day and in total (e.g., 5 and 50), counted in Redis. `user_id` comes from graph config, never from the tool arguments.
 - [ ] 1.3.30 Tests: a ticker is queued once under concurrent calls, an unknown ticker isn't queued, the worker processes a job and marks it done, the limits hold. A network test ingests one uncached ticker end to end.
 
+#### Pre-index the S&P 500 (amendment)
+
+Queueing alone means the first question about any company is answered without
+its 10-K. Indexing the S&P 500 in advance covers the companies people usually
+ask about; the queue (1.3.26-1.3.30) covers the rest. Measured on 30 filers'
+latest 10-Ks (cleaned Items 1, 1A, 7, 7A, 8; tiktoken counts): mean 81k tokens,
+228 chunks at 450 tokens, 95 at 1,000. For 500 filers that is about 40M tokens
+and 114k chunks (48k with a long-context model). bge-small embedded 10.4
+chunks/s on a laptop, so about 3 hours.
+
+- [ ] 1.3.31 Commit the S&P 500 constituent list as a dated CSV with its source in the file. Resolve each ticker with 1.3.26 and report the ones that fail (share classes such as `BRK.B`, `GOOG`/`GOOGL`).
+- [ ] 1.3.32 Add `--tickers-file` to the 1.2.18 CLI: latest 10-K only, one filing at a time, skip filings already in Qdrant by accession so an interrupted run resumes, log failures and continue. Run it on a laptop. Record run time, chunk count and collection size in `docs/CONTEXT.md`.
+- [ ] 1.3.33 Snapshot the collection and restore it into a cluster instead of re-embedding. Verify Qdrant's snapshot create and recover calls against the installed `qdrant-client` first. Keep the snapshot file locally, since 4.2.18 deletes the Qdrant volume after each AWS session.
+
 ### 1.4 Observability
 
 - [ ] 1.4.1 \[HUMAN\] Choose LangSmith (zero config with LangGraph) or Langfuse (open source, self-hostable).
@@ -475,7 +489,7 @@ Goal: `terraform apply` builds the VPC, EKS cluster, ECR repo and CI role from c
 
 - [ ] 4.2.12 Push the image to ECR with the git SHA as tag.
 - [ ] 4.2.13 Fill `overlays/aws` (ECR image, gp3 storage); `kubectl apply -k k8s/overlays/aws`.
-- [ ] 4.2.14 Run the ingestion Job; verify point count in Qdrant.
+- [ ] 4.2.14 Restore the S&P 500 snapshot (1.3.33) into Qdrant; verify point count. Don't re-embed in the cluster: about 3 hours of node time per session.
 - [ ] 4.2.15 Port-forward and stream a chat request.
 
 #### Teardown runbook

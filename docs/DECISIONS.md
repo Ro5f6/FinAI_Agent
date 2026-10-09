@@ -225,3 +225,15 @@ filing for a separate worker. The queue is a Redis Stream on the Redis we
 already run, so it costs nothing. Each ticker is queued once, and new tickers
 are capped per user and per day so nobody can make it ingest thousands.
 1.3.26–1.3.30, 3.1.7, 3.2.13
+
+### D-022 Pre-index the S&P 500 (2026-10-09)
+
+With D-021 alone, the first question about any company is answered without
+its 10-K. Search products over filings index their companies in advance, so
+we index the S&P 500's latest 10-Ks and keep the queue for everything else.
+Measured on 30 filers: mean 81k tokens and 228 chunks per 10-K (range 96-740;
+banks and utilities are largest), so about 40M tokens and 114k chunks for 500,
+or 48k chunks with 1,000-token chunks. It costs nothing with a local model (about 3
+hours on a laptop with bge-small) and fits the free tiers of the hosted ones.
+The index is built once and restored into each cluster from a snapshot.
+1.3.31–1.3.33, 4.2.14
