@@ -248,6 +248,22 @@ the verifier cannot check against any tool result.
 - [ ] 1.3.24 `get_price_history(ticker, period="1y")`, `period` one of `"1y"`, `"3y"`, `"5y"`. Source is Alpaca historical daily bars (free plan: back to 2016, 200 calls/min, latest 15 minutes withheld, which daily bars do not need). Always fetch 5 years of split- and dividend-adjusted bars in one request (\~1,260 rows) and slice locally, so every period costs the same. Return total return, annualised volatility and maximum drawdown for the requested period, plus returns per fiscal year using each filing's `period_of_report` as the boundary, so price and fundamentals (1.3.22) cover the same span even for non-calendar year ends (AAPL September, MSFT June). Return the actual start date used: a short listing such as RIVN (2021) silently yields less than 5 years. All arithmetic in Python. Cache for a day, since daily closes change once a day. Add `ALPACA_API_KEY` and `ALPACA_SECRET_KEY` (`SecretStr`) to `Settings` and `.env.example`. Before coding, verify against the installed client or live API: the adjustment parameter's name and behaviour (an unadjusted NVDA 10-for-1 split in 2024 would read as a 90% crash), and whether the free plan allows the full-market (SIP) feed for older bars or only IEX.
 - [ ] 1.3.25 Wrap both with `@tool` (1.3.4) and test each (1.3.5). Assert the computed figures equal hand-calculated fixtures, per the deterministic numeric rule in 6.2.6.
 
+#### On-demand ingestion (amendment)
+
+Only the tickers ingested by hand (1.2.19) have 10-K text in Qdrant. When a user
+asks about another company, the agent answers now with the tools that work for
+any ticker (1.3.1, 1.3.22, 1.3.24) and queues the filing, so a later question
+can cite it. Ingestion runs in a separate worker, not inside the request: it
+takes 25 s or more (PEP: 2.5 s fetch and parse, about 20 s to embed with
+bge-small on a laptop), and the API pod has no memory to spare (3.2.9). Redis
+Streams is the queue, so nothing new is deployed.
+
+- [ ] 1.3.26 Resolve the ticker before queueing: it must map to an SEC filer with at least one 10-K. Otherwise the tool says the company has no 10-K on EDGAR. Verify the lookup against the installed edgartools.
+- [ ] 1.3.27 When `query_company_10k` finds no chunks for a valid ticker, add a job to a Redis Stream and return a status (`queued`, `ingesting`, `failed`) instead of empty results; the system prompt tells the agent to say the filing is being fetched. Queue each ticker once: a Redis `SET NX` key with a TTL, so both API replicas and repeated questions don't queue it twice.
+- [ ] 1.3.28 Worker `python -m finai.ingestion.worker`: read the stream through a consumer group, run the 1.2.18 pipeline with the default `--years`, acknowledge on success, record status per ticker in Redis. Claim pending jobs left by a crashed worker. One job at a time, which also keeps within SEC's request limit.
+- [ ] 1.3.29 Limit new tickers per user per day and in total (e.g., 5 and 50), counted in Redis. `user_id` comes from graph config, never from the tool arguments.
+- [ ] 1.3.30 Tests: a ticker is queued once under concurrent calls, an unknown ticker isn't queued, the worker processes a job and marks it done, the limits hold. A network test ingests one uncached ticker end to end.
+
 ### 1.4 Observability
 
 - [ ] 1.4.1 \[HUMAN\] Choose LangSmith (zero config with LangGraph) or Langfuse (open source, self-hostable).
@@ -363,7 +379,7 @@ Goal: one immutable, non-root image runs the full stack on a local Kind cluster,
 - [ ] 3.1.4 Runtime stage: slim base; copy venv, models and `src/`; `useradd -u 10001 app`; `USER 10001`.
 - [ ] 3.1.5 Entrypoint: `uvicorn finai.api.main:app --host 0.0.0.0 --port 8000`, one worker (scale with pods).
 - [ ] 3.1.6 Build with a version tag (`finai-api:0.3.0`); record image size.
-- [ ] 3.1.7 Add an `api` service to docker compose using `QDRANT_URL=http://qdrant:6333` and `REDIS_URL=redis://redis:6379`.
+- [ ] 3.1.7 Add an `api` service to docker compose using `QDRANT_URL=http://qdrant:6333` and `REDIS_URL=redis://redis:6379`, and a `worker` service from the same image running `python -m finai.ingestion.worker` (1.3.28).
 - [ ] 3.1.8 Scan with `trivy image finai-api:0.3.0`; fix critical findings.
 
 **Done when:** `docker compose up` runs the full stack, the chat endpoint streams, and the container runs as UID 10001.
@@ -390,7 +406,7 @@ Goal: one immutable, non-root image runs the full stack on a local Kind cluster,
 - [ ] 3.2.10 `preStop` hook sleeping \~10 s so endpoints drain before shutdown.
 - [ ] 3.2.11 Service: ClusterIP, port 80 → 8000.
 - [ ] 3.2.12 PodDisruptionBudget: `minAvailable: 1`.
-- [ ] 3.2.13 Ingestion Job running `python -m finai.ingestion.ingest` against in-cluster Qdrant.
+- [ ] 3.2.13 Ingestion Job running `python -m finai.ingestion.ingest` against in-cluster Qdrant. Plus a worker Deployment for on-demand ingestion (1.3.28): 1 replica, same image, command `python -m finai.ingestion.worker`, memory limit \~1.5 GiB, no Service.
 - [ ] 3.2.14 Install metrics-server; add a HorizontalPodAutoscaler (CPU target, min 2, max 4).
 - [ ] 3.2.15 Kustomize overlays: `overlays/local` now, `overlays/aws` stub for Phase 4.
 

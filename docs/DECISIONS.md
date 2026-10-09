@@ -213,3 +213,15 @@ dropped it and those companies had no MD&A. Parsing with
 Item 7 grew from 396 to 412,342 characters and XOM's from 265 to 127,745.
 The other eight companies came out unchanged.
 `1e89b7f` · 1.2.5
+
+### D-021 Ingest unknown companies in the background (2026-10-09)
+
+The plan ingests a few tickers by hand, so a question about any other company
+found no 10-K text. Ingesting during the request was rejected: PEP took 2.5 s
+to fetch and parse and about 20 s to embed with bge-small on a laptop, longer
+on the pod's CPU, and the 2 GiB API pod has no room for it. Instead the agent
+answers with prices and financials, which work for any ticker, and queues the
+filing for a separate worker. The queue is a Redis Stream on the Redis we
+already run, so it costs nothing. Each ticker is queued once, and new tickers
+are capped per user and per day so nobody can make it ingest thousands.
+1.3.26–1.3.30, 3.1.7, 3.2.13
