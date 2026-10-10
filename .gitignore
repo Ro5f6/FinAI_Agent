@@ -33,3 +33,6 @@ k8s/**/secret.yaml
 .ruff_cache/
 .coverage
 htmlcov/
+
+# Decision log, kept local for now
+docs/DECISIONS.md
