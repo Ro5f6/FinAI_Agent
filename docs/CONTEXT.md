@@ -10,7 +10,7 @@ the decisions and why; `git log` holds the reasoning per change.
 Phase 0 complete except `[HUMAN]` 0.1.x accounts. The repo is pushed to
 github.com/Ro5f6/FinAI_Agent (public; `docs/DECISIONS.md` is gitignored and
 kept local for now). Step 1.1 complete. In
-step 1.2, tasks 1.2.1–1.2.11 are done; **1.2.12 is next**.
+step 1.2, tasks 1.2.1–1.2.12 are done; **1.2.13 is next**.
 
 ## Verified library behaviour (edgartools 5.60.0)
 
@@ -124,6 +124,21 @@ step 1.2, tasks 1.2.1–1.2.11 are done; **1.2.12 is next**.
   `.env` and the `Settings` default. After the switch, the terminal running
   this session still had `BAAI/bge-small-en-v1.5` and the API rejected it.
 
+## Verified Qdrant client (qdrant-client 1.19.1, server v1.19.1)
+
+- Client and server versions match, so the client's version check stays quiet.
+- **`QdrantClient.search` no longer exists.** Search with
+  `query_points(collection_name, query=<vector>, query_filter=, limit=,
+  with_payload=)`; results are in `.points`.
+- Present: `collection_exists`, `create_collection(collection_name,
+  vectors_config=VectorParams(size=, distance=Distance.COSINE))`,
+  `create_payload_index(collection_name, field_name, field_schema=)`,
+  `upsert(collection_name, points=[PointStruct(id=, vector=, payload=)])`,
+  `delete(collection_name, points_selector=FilterSelector(filter=Filter(...)))`,
+  `count(collection_name, count_filter=, exact=True)`.
+- `PayloadSchemaType` values: keyword, integer, float, geo, text, bool,
+  datetime, uuid. `Distance`: Cosine, Euclid, Dot, Manhattan.
+
 ## Verified chunking behaviour (langchain-text-splitters 1.1.3, tiktoken 0.14.0)
 
 - `RecursiveCharacterTextSplitter.from_tiktoken_encoder` defaults to the
@@ -158,7 +173,9 @@ step 1.2, tasks 1.2.1–1.2.11 are done; **1.2.12 is next**.
 - Qdrant filtering restricts candidates but does **not** balance them: a filter
   allowing two fiscal years returned 3 chunks from one and 1 from the other.
   `POST /points/search/groups` with `group_by` gives a guaranteed allocation per
-  group — verified on the REST API; confirm the Python client's method at 1.2.13.
+  group — verified on the REST API. The Python client exposes it as
+  `query_points_groups(collection_name, group_by, query, query_filter, limit,
+  group_size, ...)`.
 - Persistence confirmed across `docker compose down` + `up` for both services.
   `down -v` would destroy the Redis volume.
 
