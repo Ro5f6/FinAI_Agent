@@ -10,7 +10,7 @@ the decisions and why; `git log` holds the reasoning per change.
 Phase 0 complete except `[HUMAN]` 0.1.x accounts. The repo is pushed to
 github.com/Ro5f6/FinAI_Agent (public; `docs/DECISIONS.md` is gitignored and
 kept local for now). Step 1.1 complete. In
-step 1.2, tasks 1.2.1–1.2.13 are done; **1.2.14 is next**.
+step 1.2, tasks 1.2.1–1.2.14 are done; **1.2.15 is next**.
 
 ## Verified library behaviour (edgartools 5.60.0)
 
@@ -139,6 +139,10 @@ step 1.2, tasks 1.2.1–1.2.13 are done; **1.2.14 is next**.
 - `QdrantClient(":memory:")` supports create/get/count/upsert, so store tests
   run offline; `-m qdrant` runs the ones that need the compose server.
   `create_collection` on an existing name raises `ValueError`.
+- Payload indexes: creating the same index twice is a no-op; creating it with
+  another type **replaces it silently**, so `ensure_payload_indexes` compares
+  `payload_schema[field].data_type`. In-memory mode ignores payload indexes
+  (it warns and `payload_schema` stays `{}`), so index tests need `-m qdrant`.
 - `PayloadSchemaType` values: keyword, integer, float, geo, text, bool,
   datetime, uuid. `Distance`: Cosine, Euclid, Dot, Manhattan.
 

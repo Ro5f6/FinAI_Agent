@@ -9,6 +9,14 @@ from finai.config import settings
 
 DISTANCE = models.Distance.COSINE
 
+# Fields that searches filter on. fiscal_year is an integer index so year
+# filters and ranges ("since 2023") use it; ChunkPayload rejects a string year.
+PAYLOAD_INDEXES: dict[str, models.PayloadSchemaType] = {
+    "ticker": models.PayloadSchemaType.KEYWORD,
+    "fiscal_year": models.PayloadSchemaType.INTEGER,
+    "section": models.PayloadSchemaType.KEYWORD,
+}
+
 
 class CollectionMismatchError(RuntimeError):
     """The collection exists with a different vector size or distance."""
@@ -53,3 +61,25 @@ def ensure_collection(
             "collection or delete this one deliberately."
         )
     return False
+
+
+def ensure_payload_indexes(client: QdrantClient, name: str | None = None) -> list[str]:
+    """Index the filter fields; return the fields whose index was created.
+
+    An index that exists with the wrong type is recreated with the right one:
+    Qdrant replaces it in place without an error, and only the index changes,
+    not the stored points. Local (in-memory) Qdrant ignores payload indexes,
+    so their effect is only testable against a server.
+    """
+    name = name or settings.COLLECTION_NAME
+    existing = client.get_collection(name).payload_schema
+    created = []
+    for field, schema in PAYLOAD_INDEXES.items():
+        current = existing.get(field)
+        if current is not None and current.data_type == schema:
+            continue
+        client.create_payload_index(
+            collection_name=name, field_name=field, field_schema=schema
+        )
+        created.append(field)
+    return created
