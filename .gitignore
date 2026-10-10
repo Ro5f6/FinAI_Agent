@@ -34,5 +34,6 @@ k8s/**/secret.yaml
 .coverage
 htmlcov/
 
-# Decision log, kept local for now
+# Build plan and decision log, kept local for now
+PLAN.md
 docs/DECISIONS.md
