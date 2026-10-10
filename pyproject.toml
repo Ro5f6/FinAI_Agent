@@ -31,5 +31,9 @@ dev = [
 testpaths = ["tests"]
 # Tests that call the live SEC API are deselected by default: they are slow,
 # depend on the network, and EDGAR rate-limits. Run them with `-m network`.
-addopts = "-m 'not network'"
-markers = ["network: hits the live SEC EDGAR API"]
+# Tests that need the docker compose Qdrant run with `-m qdrant`.
+addopts = "-m 'not network and not qdrant'"
+markers = [
+    "network: hits the live SEC EDGAR API",
+    "qdrant: needs the Qdrant from docker compose",
+]

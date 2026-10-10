@@ -10,7 +10,7 @@ the decisions and why; `git log` holds the reasoning per change.
 Phase 0 complete except `[HUMAN]` 0.1.x accounts. The repo is pushed to
 github.com/Ro5f6/FinAI_Agent (public; `docs/DECISIONS.md` is gitignored and
 kept local for now). Step 1.1 complete. In
-step 1.2, tasks 1.2.1–1.2.12 are done; **1.2.13 is next**.
+step 1.2, tasks 1.2.1–1.2.13 are done; **1.2.14 is next**.
 
 ## Verified library behaviour (edgartools 5.60.0)
 
@@ -136,6 +136,9 @@ step 1.2, tasks 1.2.1–1.2.12 are done; **1.2.13 is next**.
   `upsert(collection_name, points=[PointStruct(id=, vector=, payload=)])`,
   `delete(collection_name, points_selector=FilterSelector(filter=Filter(...)))`,
   `count(collection_name, count_filter=, exact=True)`.
+- `QdrantClient(":memory:")` supports create/get/count/upsert, so store tests
+  run offline; `-m qdrant` runs the ones that need the compose server.
+  `create_collection` on an existing name raises `ValueError`.
 - `PayloadSchemaType` values: keyword, integer, float, geo, text, bool,
   datetime, uuid. `Distance`: Cosine, Euclid, Dot, Manhattan.
 
