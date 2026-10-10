@@ -14,6 +14,7 @@ from finai.ingestion.store import (
     DISTANCE,
     PAYLOAD_INDEXES,
     CollectionMismatchError,
+    IngestCountError,
     ensure_collection,
     ensure_payload_indexes,
     qdrant_client,
@@ -175,6 +176,37 @@ def test_fewer_chunks_on_reingest_removes_the_extras(small: QdrantClient) -> Non
     )
     assert small.count("c", count_filter=by_filing).count == 3
     assert small.count("c").count == 5  # the other filing's 2 points are untouched
+
+
+class _LosingClient:
+    """Passes calls through but drops the last point of every upsert, as a
+    failed or partial write would."""
+
+    def __init__(self, inner: QdrantClient) -> None:
+        self._inner = inner
+
+    def upsert(self, collection_name, points, wait=True):
+        return self._inner.upsert(collection_name, points=points[:-1], wait=wait)
+
+    def __getattr__(self, attr):
+        return getattr(self._inner, attr)
+
+
+def test_count_mismatch_raises_and_names_the_filing(small: QdrantClient) -> None:
+    payloads = _filing("A-1", 3)
+
+    with pytest.raises(IngestCountError, match="AAPL A-1: 2 points stored, 3 chunks"):
+        upsert_filing(_LosingClient(small), payloads, _vectors(payloads), name="c")
+
+
+def test_count_is_checked_per_filing(small: QdrantClient) -> None:
+    """Another filing's points must not mask a short write."""
+    other = _filing("B-2", 4)
+    upsert_filing(small, other, _vectors(other), name="c")
+    payloads = _filing("A-1", 3)
+
+    with pytest.raises(IngestCountError, match="A-1"):
+        upsert_filing(_LosingClient(small), payloads, _vectors(payloads), name="c")
 
 
 def test_mismatched_lengths_raise(small: QdrantClient) -> None:

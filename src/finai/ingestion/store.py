@@ -26,6 +26,10 @@ class CollectionMismatchError(RuntimeError):
     """The collection exists with a different vector size or distance."""
 
 
+class IngestCountError(RuntimeError):
+    """A filing's point count differs from the number of chunks written."""
+
+
 # Points per upsert request. Each point carries a 1024-float vector and up to
 # ~4 KB of text, so 256 keeps a request around 5 MB.
 UPSERT_BATCH = 256
@@ -113,6 +117,11 @@ def upsert_filing(
     a re-ingest never finds the filing empty. Leftovers are the filing's
     points whose IDs the new chunking didn't produce, e.g. after a chunker
     change that yields fewer chunks.
+
+    Afterwards the filing's points are counted exactly and must equal the
+    chunks written (1.2.16). The check is per filing rather than for the
+    whole collection, so it holds with many filings stored and names the one
+    that is wrong.
     """
     if len(payloads) != len(vectors):
         raise ValueError(f"{len(payloads)} payloads but {len(vectors)} vectors")
@@ -130,15 +139,26 @@ def upsert_filing(
     for start in range(0, len(points), UPSERT_BATCH):
         client.upsert(name, points=points[start : start + UPSERT_BATCH], wait=True)
 
+    accession = accessions.pop()
+    this_filing = models.FieldCondition(
+        key="accession", match=models.MatchValue(value=accession)
+    )
     stale = models.Filter(
-        must=[
-            models.FieldCondition(
-                key="accession", match=models.MatchValue(value=accessions.pop())
-            )
-        ],
+        must=[this_filing],
         must_not=[models.HasIdCondition(has_id=[p.id for p in points])],
     )
     removed = client.count(name, count_filter=stale, exact=True).count
     if removed:
-        client.delete(name, points_selector=models.FilterSelector(filter=stale))
+        client.delete(
+            name, points_selector=models.FilterSelector(filter=stale), wait=True
+        )
+
+    stored = client.count(
+        name, count_filter=models.Filter(must=[this_filing]), exact=True
+    ).count
+    if stored != len(points):
+        raise IngestCountError(
+            f"{payloads[0].ticker} {accession}: {stored} points stored, "
+            f"{len(points)} chunks written"
+        )
     return removed
