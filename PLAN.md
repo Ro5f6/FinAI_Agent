@@ -104,7 +104,7 @@ Goal: accounts, tools and an empty but correctly structured repo, so every later
 
 ### 0.1 Accounts and keys \[HUMAN\]
 
-- [ ] 0.1.1 Create GitHub repo `finai-agent`.
+- [x] 0.1.1 Create GitHub repo: github.com/Ro5f6/FinAI_Agent (public).
 - [ ] 0.1.2 Get an LLM provider API key (Anthropic or OpenAI).
 - [ ] 0.1.3 Create a LangSmith account, or decide to self-host Langfuse.
 - [ ] 0.1.4 Don't create the AWS account yet. It moves to 4.0 so the 6-month free-plan clock starts only when AWS is needed.
@@ -477,7 +477,7 @@ Goal: `terraform apply` builds the VPC, EKS cluster, ECR repo and CI role from c
 #### Registry and CI identity
 
 - [ ] 4.2.5 ECR repo `finai-api`: scan on push, lifecycle policy keeping the last 10 images.
-- [ ] 4.2.6 GitHub OIDC provider + IAM role assumable only by `repo:<you>/finai-agent:ref:refs/heads/main`; permissions: ECR push, `eks:DescribeCluster`.
+- [ ] 4.2.6 GitHub OIDC provider + IAM role assumable only by `repo:Ro5f6/FinAI_Agent:ref:refs/heads/main` (the `sub` claim is case-sensitive, so match the repo name exactly); permissions: ECR push, `eks:DescribeCluster`.
 - [ ] 4.2.7 EKS access entry granting that CI role deploy rights in namespace `finai` (without it, CI `kubectl` is Unauthorized).
 
 #### Apply and bootstrap

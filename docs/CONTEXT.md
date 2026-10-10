@@ -7,8 +7,9 @@ the decisions and why; `git log` holds the reasoning per change.
 
 ## State
 
-Phase 0 complete except `[HUMAN]` items (0.1.x accounts, and the "skeleton is
-pushed" half of 0.3 — there is still no git remote). Step 1.1 complete. In
+Phase 0 complete except `[HUMAN]` 0.1.x accounts. The repo is pushed to
+github.com/Ro5f6/FinAI_Agent (public; `docs/DECISIONS.md` is gitignored and
+kept local for now). Step 1.1 complete. In
 step 1.2, tasks 1.2.1–1.2.11 are done; **1.2.12 is next**.
 
 ## Verified library behaviour (edgartools 5.60.0)
