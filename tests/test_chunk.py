@@ -5,6 +5,7 @@ small token limits make the splitting visible.
 """
 
 import re
+import uuid
 from itertools import pairwise
 
 import pytest
@@ -298,6 +299,43 @@ def test_payload_rejects_a_non_integer_year() -> None:
         ChunkPayload(**{**_payload_fields(), "fiscal_year": "FY2025"})
 
 
+def test_point_id_is_a_stable_uuid() -> None:
+    """A fixed value: if this changes, re-ingesting duplicates every point."""
+    [payload] = chunk_filing(_META, {"Item 1A": "Supply risk."}, 100, 10)
+
+    assert payload.point_id() == "ff855642-a6fb-52cf-bada-d436da648f7a"
+    assert uuid.UUID(payload.point_id()).version == 5
+
+
+def test_point_ids_are_the_same_across_runs() -> None:
+    sections = {"Item 1A": _prose(60, "A "), "Item 7": _prose(60, "B ")}
+
+    first = [p.point_id() for p in chunk_filing(_META, sections, 80, 10)]
+    second = [p.point_id() for p in chunk_filing(_META, sections, 80, 10)]
+
+    assert first == second
+    assert len(set(first)) == len(first)
+
+
+@pytest.mark.parametrize(
+    "change",
+    [{"accession": "0000320193-24-000123"}, {"section": "Item 7"}, {"chunk_index": 1}],
+)
+def test_point_id_changes_with_each_key_part(change: dict[str, object]) -> None:
+    payload = ChunkPayload(**_payload_fields())
+
+    assert payload.model_copy(update=change).point_id() != payload.point_id()
+
+
+def test_point_id_ignores_the_text() -> None:
+    """Re-chunking a filing must overwrite its points, not add new ones."""
+    payload = ChunkPayload(**_payload_fields())
+
+    assert (
+        payload.model_copy(update={"text": "Edited."}).point_id() == payload.point_id()
+    )
+
+
 def _payload_fields() -> dict[str, object]:
     return chunk_filing(_META, {"Item 1": "Business."}, 100, 10)[0].model_dump()
 
@@ -323,6 +361,10 @@ def test_chunk_filing_against_a_live_filing() -> None:
     assert {p.fiscal_year for p in payloads} == {int(str(filing.period_of_report)[:4])}
     keys = [(p.section, p.chunk_index) for p in payloads]
     assert len(keys) == len(set(keys))
+    ids = [p.point_id() for p in payloads]
+    assert len(ids) == len(set(ids))
+    rerun = chunk_filing(filing_meta(filing, "AAPL"), sections)
+    assert [p.point_id() for p in rerun] == ids
 
 
 @pytest.mark.network

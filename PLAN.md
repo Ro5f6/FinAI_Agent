@@ -175,14 +175,14 @@ Goal: on a laptop, the agent ingests 10-K filings, pulls live prices, and answer
 - [x] 1.2.8 Choose the embedding model and record its max tokens and vector dimension in settings. 512-token model → 400–500 token chunks, 50–80 overlap. Long-context model (e.g., `nomic-embed-text-v1.5`) → \~1,000-token chunks.
 - [x] 1.2.9 Split with `RecursiveCharacterTextSplitter.from_tiktoken_encoder(...)` so sizes are measured in tokens. Measure with the embedding model's own tokenizer where it differs from tiktoken (1.2.8), since it may split figures into more tokens. Make the split table-aware (1.2.7): a table block is consecutive lines whose cells are separated by two spaces. Never split a table that fits in one chunk; attach the short title, unit and caption paragraphs above it; merge table blocks separated only by a blank line; split an oversized table by rows, repeating title, unit, heading rows and the current row-group label (`2024`, `Level 1:`) on every piece. Avoid two failure modes seen in the trial: a statement footer ("See accompanying Notes...") taken as the next table's caption, and a label row with no figures (`Net sales:`) taken as a heading row. Target from the trial: table chunks with figures keep their year (99%) and unit (about 94%).
 - [x] 1.2.10 Attach payload to each chunk: `ticker`, `form`, `fiscal_year`, `filing_date`, `section`, `chunk_index`, `accession`, `text`.
-- [ ] 1.2.11 Compute a deterministic ID: `uuid5(namespace, f"{accession}:{section}:{index}")`, so re-runs overwrite instead of duplicating.
+- [x] 1.2.11 Compute a deterministic ID: `uuid5(namespace, f"{accession}:{section}:{index}")`, so re-runs overwrite instead of duplicating.
 
 #### Embed and store
 
 - [ ] 1.2.12 `uv add voyageai qdrant-client`. Embed documents with `input_type="document"` and queries with `input_type="query"`; Voyage adds its own retrieval prompts for each, so no prefixes in our code.
 - [ ] 1.2.13 Create collection `sec_filings` if missing: vector size from settings, cosine distance.
 - [ ] 1.2.14 Create payload indexes: `ticker` (keyword), `fiscal_year` (integer), `section` (keyword).
-- [ ] 1.2.15 Embed and upsert in batches. Voyage caps a request at 1,000 texts and 320K tokens for voyage-4; batch by token count with `count_tokens`, and retry on `RateLimitError`.
+- [ ] 1.2.15 Embed and upsert in batches. Voyage caps a request at 1,000 texts and 320K tokens for voyage-4; batch by token count with `count_tokens`, and retry on `RateLimitError`. Before upserting a filing, delete its existing points by `accession`: deterministic IDs (1.2.11) overwrite matching chunks, but if a chunker change yields fewer chunks, the old extras would otherwise stay.
 
 #### Verify
 

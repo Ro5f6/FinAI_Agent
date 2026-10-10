@@ -27,6 +27,7 @@ RIVN, WMT, XOM); ``tests/test_chunk.py`` repeats the check.
 """
 
 import re
+import uuid
 from functools import lru_cache
 from typing import NamedTuple
 
@@ -38,6 +39,11 @@ from finai.config import settings
 from finai.ingestion.fetch import FilingMeta
 
 ENCODING = "cl100k_base"
+
+# Namespace for chunk point IDs: uuid5(NAMESPACE_URL, "finai-agent/sec_filings/chunk").
+# Changing it re-keys every point, so the next ingest would duplicate the
+# whole collection instead of overwriting it.
+CHUNK_ID_NAMESPACE = uuid.UUID("ac7fbf41-514f-5d47-874e-3cb7a349b2bb")
 
 # A cell boundary: two spaces between non-space characters.
 _CELL_GAP = re.compile(r"\S  \S")
@@ -306,6 +312,17 @@ class ChunkPayload(BaseModel):
     chunk_index: int
     accession: str
     text: str
+
+    def point_id(self) -> str:
+        """Qdrant point ID: the same chunk always gets the same ID.
+
+        Re-ingesting a filing therefore overwrites its points rather than
+        duplicating them. It doesn't remove points beyond the new chunk count:
+        if a chunker change yields fewer chunks for a filing, the old extras
+        remain until the filing's points are deleted by ``accession``.
+        """
+        key = f"{self.accession}:{self.section}:{self.chunk_index}"
+        return str(uuid.uuid5(CHUNK_ID_NAMESPACE, key))
 
 
 def chunk_filing(
