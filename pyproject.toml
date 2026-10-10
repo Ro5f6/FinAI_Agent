@@ -31,9 +31,11 @@ dev = [
 testpaths = ["tests"]
 # Tests that call the live SEC API are deselected by default: they are slow,
 # depend on the network, and EDGAR rate-limits. Run them with `-m network`.
-# Tests that need the docker compose Qdrant run with `-m qdrant`.
-addopts = "-m 'not network and not qdrant'"
+# Tests that need the docker compose Qdrant run with `-m qdrant`; tests that
+# call the Voyage API (and spend tokens) with `-m voyage`.
+addopts = "-m 'not network and not qdrant and not voyage'"
 markers = [
     "network: hits the live SEC EDGAR API",
     "qdrant: needs the Qdrant from docker compose",
+    "voyage: calls the Voyage AI API",
 ]

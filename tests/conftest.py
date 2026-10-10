@@ -12,6 +12,18 @@ fixture, so no test depends on these values.
 
 import os
 
-os.environ.setdefault("ANTHROPIC_API_KEY", "sk-ant-collection-only")
-os.environ.setdefault("SEC_IDENTITY", "Collection Only collection@example.com")
-os.environ.setdefault("VOYAGE_API_KEY", "pa-collection-only")
+from dotenv import dotenv_values
+
+# Placeholders only for variables that neither the environment nor a local
+# .env provides. An exported placeholder would override .env (environment
+# variables win in pydantic-settings), so live tests marked `voyage` would
+# send it to the API instead of the real key.
+_PLACEHOLDERS = {
+    "ANTHROPIC_API_KEY": "sk-ant-collection-only",
+    "SEC_IDENTITY": "Collection Only collection@example.com",
+    "VOYAGE_API_KEY": "pa-collection-only",
+}
+_local_env = dotenv_values(".env")
+for _name, _placeholder in _PLACEHOLDERS.items():
+    if not os.environ.get(_name) and not _local_env.get(_name):
+        os.environ[_name] = _placeholder

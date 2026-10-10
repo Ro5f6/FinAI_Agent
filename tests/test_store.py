@@ -8,7 +8,8 @@ import pytest
 from qdrant_client import QdrantClient, models
 
 from finai.config import settings
-from finai.ingestion.chunk import ChunkPayload
+from finai.ingestion.chunk import ChunkPayload, chunk_filing
+from finai.ingestion.fetch import FilingMeta
 from finai.ingestion.store import (
     DISTANCE,
     PAYLOAD_INDEXES,
@@ -16,6 +17,7 @@ from finai.ingestion.store import (
     ensure_collection,
     ensure_payload_indexes,
     qdrant_client,
+    upsert_filing,
 )
 
 
@@ -110,6 +112,83 @@ def test_indexed_fields_are_payload_fields_of_the_right_type() -> None:
     for field, schema in PAYLOAD_INDEXES.items():
         assert field in fields
         assert fields[field].annotation is python_type[schema]
+
+
+def test_qdrant_client_is_shared() -> None:
+    """A new client costs ~25 ms (a version check); a reused one ~1 ms."""
+    qdrant_client.cache_clear()
+
+    assert qdrant_client() is qdrant_client()
+
+
+def _meta(accession: str) -> FilingMeta:
+    return FilingMeta("AAPL", accession, "10-K", "2025-10-31", "2025-09-27", 2025)
+
+
+def _filing(accession: str, n_paragraphs: int) -> list[ChunkPayload]:
+    body = "\n\n".join(f"Paragraph {i} about supply risk." for i in range(n_paragraphs))
+    # 8-token chunks: one paragraph per chunk.
+    return chunk_filing(_meta(accession), {"Item 1A": body}, 8, 0)
+
+
+def _vectors(payloads: list[ChunkPayload]) -> list[list[float]]:
+    return [[1.0, float(p.chunk_index), 0.0, 0.0] for p in payloads]
+
+
+@pytest.fixture
+def small(client: QdrantClient) -> QdrantClient:
+    ensure_collection(client, name="c", dim=4)
+    return client
+
+
+def test_upsert_writes_points_with_their_payload(small: QdrantClient) -> None:
+    payloads = _filing("A-1", 3)
+
+    assert upsert_filing(small, payloads, _vectors(payloads), name="c") == 0
+
+    assert small.count("c").count == 3
+    [point] = small.retrieve("c", ids=[payloads[1].point_id()])
+    assert point.payload == payloads[1].model_dump()
+
+
+def test_reingesting_overwrites_instead_of_duplicating(small: QdrantClient) -> None:
+    payloads = _filing("A-1", 3)
+    upsert_filing(small, payloads, _vectors(payloads), name="c")
+
+    upsert_filing(small, payloads, _vectors(payloads), name="c")
+
+    assert small.count("c").count == 3
+
+
+def test_fewer_chunks_on_reingest_removes_the_extras(small: QdrantClient) -> None:
+    upsert_filing(small, _filing("A-1", 5), _vectors(_filing("A-1", 5)), name="c")
+    upsert_filing(small, _filing("B-2", 2), _vectors(_filing("B-2", 2)), name="c")
+
+    shorter = _filing("A-1", 3)
+    removed = upsert_filing(small, shorter, _vectors(shorter), name="c")
+
+    assert removed == 2
+    by_filing = models.Filter(
+        must=[
+            models.FieldCondition(key="accession", match=models.MatchValue(value="A-1"))
+        ]
+    )
+    assert small.count("c", count_filter=by_filing).count == 3
+    assert small.count("c").count == 5  # the other filing's 2 points are untouched
+
+
+def test_mismatched_lengths_raise(small: QdrantClient) -> None:
+    payloads = _filing("A-1", 3)
+
+    with pytest.raises(ValueError, match="3 payloads but 2 vectors"):
+        upsert_filing(small, payloads, _vectors(payloads)[:2], name="c")
+
+
+def test_one_call_writes_one_filing(small: QdrantClient) -> None:
+    mixed = _filing("A-1", 2) + _filing("B-2", 2)
+
+    with pytest.raises(ValueError, match="one filing"):
+        upsert_filing(small, mixed, _vectors(mixed), name="c")
 
 
 @pytest.fixture

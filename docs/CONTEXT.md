@@ -10,7 +10,8 @@ the decisions and why; `git log` holds the reasoning per change.
 Phase 0 complete except `[HUMAN]` 0.1.x accounts. The repo is pushed to
 github.com/Ro5f6/FinAI_Agent (public; `docs/DECISIONS.md` is gitignored and
 kept local for now). Step 1.1 complete. In
-step 1.2, tasks 1.2.1–1.2.14 are done; **1.2.15 is next**.
+step 1.2, tasks 1.2.1–1.2.15 are done; **1.2.16 is next**. AAPL's latest
+10-K (45 chunks) is embedded in the local `sec_filings`.
 
 ## Verified library behaviour (edgartools 5.60.0)
 
@@ -118,6 +119,13 @@ step 1.2, tasks 1.2.1–1.2.14 are done; **1.2.15 is next**.
   downloaded from Hugging Face on first use. On the ten filings it counts
   8.6% more tokens than tiktoken `cl100k_base` for voyage-4 (928k vs 855k)
   and 18% more for voyage-finance-2.
+- `Client(max_retries=0)` is the default: **no retries**. Above 0 it retries
+  `RateLimitError`, `ServiceUnavailableError` and `Timeout` with exponential
+  jitter (1-16 s). We use 5.
+- The sync client keeps a `requests.Session` per thread, renewed every 180 s.
+  The async client opens a new aiohttp session per request (no reuse): matters
+  for the async FastAPI app in phase 2.
+- AAPL's 45 chunks embed in 1-2 s with one request.
 - Query latency from a laptop: median 172 ms (voyage-4), 204 ms
   (voyage-finance-2) over 10 calls.
 - A shell that has sourced `.env` exports `EMBEDDING_MODEL`, which overrides
@@ -143,6 +151,14 @@ step 1.2, tasks 1.2.1–1.2.14 are done; **1.2.15 is next**.
   another type **replaces it silently**, so `ensure_payload_indexes` compares
   `payload_schema[field].data_type`. In-memory mode ignores payload indexes
   (it warns and `payload_schema` stays `{}`), so index tests need `-m qdrant`.
+- Creating a `QdrantClient` checks the server version: 24.6 ms per call
+  versus 0.9 ms reusing one client. `qdrant_client()` is cached per process.
+  The REST transport is an httpx pool; for host `localhost`/`127.0.0.1` the
+  client sets `max_keepalive_connections=0` itself ("may cause extra delays"),
+  elsewhere (e.g. the `qdrant` Service in Kubernetes) httpx's default pool
+  keeps connections alive.
+- In-memory mode supports `HasIdCondition`, `FilterSelector` deletes and
+  `retrieve`, so `upsert_filing` is tested offline.
 - `PayloadSchemaType` values: keyword, integer, float, geo, text, bool,
   datetime, uuid. `Distance`: Cosine, Euclid, Dot, Manhattan.
 
