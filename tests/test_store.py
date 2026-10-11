@@ -117,11 +117,23 @@ def test_indexed_fields_are_payload_fields_of_the_right_type() -> None:
         assert fields[field].annotation is python_type[schema]
 
 
-def test_qdrant_client_is_shared() -> None:
-    """A new client costs ~25 ms (a version check); a reused one ~1 ms."""
+def test_qdrant_client_is_shared(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A new client costs ~25 ms (a version check); a reused one ~1 ms.
+
+    A stand-in replaces QdrantClient: a real one starts that version check
+    against the server, a network call this offline test must not make.
+    """
+    from finai.ingestion import store
+
+    built = []
+    monkeypatch.setattr(
+        store, "QdrantClient", lambda url: built.append(url) or object()
+    )
     qdrant_client.cache_clear()
 
     assert qdrant_client() is qdrant_client()
+    assert built == [settings.QDRANT_URL]
+    qdrant_client.cache_clear()
 
 
 def _meta(accession: str) -> FilingMeta:

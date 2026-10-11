@@ -13,7 +13,8 @@ gitignored and kept local for now).
 
 Steps 1.1 and 1.2 complete (1.2 Done when: the supply-chain query returns
 Item 1A chunks; re-ingesting 9 filings left 487 points, 0 stale). In step
-1.3, tasks 1.3.1-1.3.4 are done; **1.3.5 is next**.
+1.3, tasks 1.3.1-1.3.5 are done (all tools built and wrapped); **1.3.6 is
+next**.
 
 Ingest with `python -m finai.ingestion.ingest --ticker AAPL NVDA MSFT
 --years 3` (needs `docker compose up -d`). The local `sec_filings` holds
@@ -163,6 +164,12 @@ those 9 filings (FY2023-2026), 487 points.
   another user's config returns that user's data.
 - A `Literal` argument becomes an enum in the schema; a value outside it
   fails validation before the function runs.
+- Tests without a live marker can't open network connections: an autouse
+  fixture in `tests/conftest.py` replaces `socket.socket.connect`. It found
+  one: `QdrantClient(url=...)` starts a background version check against the
+  server, so constructing a real client is a network call. DNS lookups
+  (`getaddrinfo`) aren't blocked. httpx passes the guard's error through
+  unwrapped.
 - The shell exports `LANGSMITH_TRACING=true` with a key LangSmith rejects
   (403 on every traced call). `tests/conftest.py` forces tracing off; set it
   false in `.env` until tracing is set up in 1.4.

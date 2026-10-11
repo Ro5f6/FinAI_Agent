@@ -31,3 +31,42 @@ _local_env = dotenv_values(".env")
 for _name, _placeholder in _PLACEHOLDERS.items():
     if not os.environ.get(_name) and not _local_env.get(_name):
         os.environ[_name] = _placeholder
+
+
+# --- no network outside marked tests (1.3.5) --------------------------------
+
+import socket
+
+import pytest
+
+LIVE_MARKERS = {"network", "voyage", "qdrant", "finnhub"}
+
+
+class NetworkBlockedError(RuntimeError):
+    """An unmarked test tried to open a network connection."""
+
+
+@pytest.fixture(autouse=True)
+def _block_network(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Fail any outbound connection from a test without a live marker.
+
+    Offline tests must pass without a network, as in CI; a hidden call to
+    Finnhub, Voyage or the SEC would otherwise pass here and fail there.
+    Unix-domain sockets stay allowed (they never leave the machine).
+    """
+    if LIVE_MARKERS & {m.name for m in request.node.iter_markers()}:
+        return
+    real_connect = socket.socket.connect
+
+    def guarded_connect(self: socket.socket, address: object) -> None:
+        if self.family == socket.AF_UNIX:
+            return real_connect(self, address)
+        raise NetworkBlockedError(
+            f"{request.node.nodeid} connected to {address!r}; mark it "
+            f"{' / '.join(sorted(LIVE_MARKERS))} or mock the call"
+        )
+
+    monkeypatch.setattr(socket.socket, "connect", guarded_connect)
+    monkeypatch.setattr(socket.socket, "connect_ex", guarded_connect)
