@@ -54,6 +54,11 @@ _PE_AGREEMENT = 1.33
 PE_FROM_QUOTE = "price / EPS"
 PE_COMPANY_LEVEL = "Finnhub, company level (home listing or main share class)"
 
+# Which share an EPS figure is per. Only EPS per THIS_SHARE can be set
+# against the quote's price; the other is labelled so it can't be.
+EPS_PER_THIS_SHARE = "this ticker's share"
+EPS_PER_HOME_SHARE = "home-listing or main-class share, not this ticker's"
+
 
 class MarketDataError(RuntimeError):
     """Finnhub could not be reached or answered unexpectedly."""
@@ -79,7 +84,10 @@ class MarketData(BaseModel):
     week_52_low: float | None
     # P/E on trailing-twelve-month and last-fiscal-year EPS. When pe_source is
     # PE_FROM_QUOTE they are price / eps_*, computed here from this quote;
-    # otherwise Finnhub's and the EPS fields are None.
+    # otherwise they are Finnhub's, computed on the home listing or main
+    # share class. EPS is in eps_currency per the share eps_per names:
+    # TSM's is TWD per Taiwan share, so it must not be divided into the USD
+    # price.
     pe_ttm: float | None
     pe_annual: float | None
     pe_source: str | None
@@ -87,6 +95,8 @@ class MarketData(BaseModel):
     eps_ttm_period_end: dt.date | None
     eps_annual: float | None
     eps_annual_period_end: dt.date | None
+    eps_currency: str | None
+    eps_per: str | None
     quote_time: dt.datetime
     source: str = "Finnhub"
 
@@ -171,8 +181,8 @@ def _valuation(price: float, currency: str | None, metric: dict, series: dict) -
     with Finnhub's P/E within ``_PE_AGREEMENT``. The currency test catches
     ASML (EUR EPS, ratio 1.10, inside the band); the agreement test catches
     SHEL and BRK.B (USD, but another share). Otherwise Finnhub's P/E is
-    returned as company-level with no EPS, since its EPS isn't per this
-    ticker's share.
+    returned as company-level, and the EPS is returned in its own currency
+    labelled as per the home-listing or main-class share.
     """
     eps_ttm, eps_annual = metric.get("epsTTM"), metric.get("epsAnnual")
     finnhub_ttm, finnhub_annual = metric.get("peTTM"), metric.get("peAnnual")
@@ -188,25 +198,29 @@ def _valuation(price: float, currency: str | None, metric: dict, series: dict) -
         and 1 / _PE_AGREEMENT <= computed / finnhub_ttm <= _PE_AGREEMENT
     )
     loss_maker = currency == "USD" and eps_ttm is not None and eps_ttm <= 0
+    has_eps = eps_ttm is not None or eps_annual is not None
+    eps = {
+        "eps_ttm": eps_ttm,
+        "eps_ttm_period_end": _latest_period(series, "quarterly"),
+        "eps_annual": eps_annual,
+        "eps_annual_period_end": _latest_period(series, "annual"),
+        "eps_currency": currency if has_eps else None,
+    }
     if same_share or loss_maker:
         return {
             "pe_ttm": computed,
             "pe_annual": per_share(eps_annual),
             "pe_source": PE_FROM_QUOTE if computed is not None else None,
-            "eps_ttm": eps_ttm,
-            "eps_ttm_period_end": _latest_period(series, "quarterly"),
-            "eps_annual": eps_annual,
-            "eps_annual_period_end": _latest_period(series, "annual"),
+            "eps_per": EPS_PER_THIS_SHARE if has_eps else None,
+            **eps,
         }
     company_level = finnhub_ttm is not None or finnhub_annual is not None
     return {
         "pe_ttm": finnhub_ttm,
         "pe_annual": finnhub_annual,
         "pe_source": PE_COMPANY_LEVEL if company_level else None,
-        "eps_ttm": None,
-        "eps_ttm_period_end": None,
-        "eps_annual": None,
-        "eps_annual_period_end": None,
+        "eps_per": EPS_PER_HOME_SHARE if has_eps else None,
+        **eps,
     }
 
 

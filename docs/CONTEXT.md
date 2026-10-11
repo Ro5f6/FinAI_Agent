@@ -174,8 +174,14 @@ is done; **1.3.2 is next**. Ingest with
   1.00-1.03, GME 1.17 (price move), ASML 1.10 (EUR EPS: the exchange rate),
   SHEL 2.01 (ADR = 2 shares), TSM 0.18, TM 0.07, BRK.B 0.00 (class A EPS).
   Recomputed only for USD reporters within 1.33x; otherwise Finnhub's P/E is
-  returned as company-level and EPS is withheld. `peExclExtraAnnual` (NVDA
+  returned as company-level, and EPS is returned in its own currency
+  labelled per the home-listing or main-class share (TSM: TWD 87.38). `peExclExtraAnnual` (NVDA
   274.2) is inconsistent with every other field; unused.
+- `/forex/rates` and home-listing quotes (2330.TW, ASML.AS, SHEL.L) are 403
+  on the free key. ECB reference rates (via api.frankfurter.app) are free and
+  cover 30 currencies, not TWD. Converting EPS to USD fixes ASML (1 ADR = 1
+  share: 1780.34 / (26.96 / 0.89238) = 58.9 vs Finnhub's 59.8) but not TSM
+  (5 shares per ADR) or SHEL (2), and shares-per-ADR aren't in the free data.
 - **`/stock/candle` returns 403 on the free key**: price history is paid-only,
   so Alpaca stays (D-013, 1.3.24).
 - A quote takes ~200-360 ms (three calls); cached it takes 0.01 ms.

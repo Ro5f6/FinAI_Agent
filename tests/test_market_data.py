@@ -250,6 +250,7 @@ def test_pe_is_recomputed_from_the_quote(finnhub: _Finnhub) -> None:
     assert data.pe_ttm == pytest.approx(229.28 / 7.9108)
     assert data.pe_annual == pytest.approx(229.28 / 4.8979)
     assert data.eps_ttm == 7.9108
+    assert (data.eps_currency, data.eps_per) == ("USD", market_data.EPS_PER_THIS_SHARE)
     assert data.eps_ttm_period_end == dt.date(2026, 7, 26)
     assert data.eps_annual_period_end == dt.date(2026, 1, 25)
 
@@ -276,10 +277,17 @@ def test_other_share_or_currency_falls_back_to_company_level(
     data = get_live_market_data(ticker)
     finnhub_pe = _RESPONSES[ticker]["/stock/metric"]["metric"]["peTTM"]
 
+    recorded = _RESPONSES[ticker]["/stock/metric"]["metric"]
+    currency = _RESPONSES[ticker]["/stock/profile2"]["currency"]
+
     assert data.pe_source == market_data.PE_COMPANY_LEVEL, why
     assert data.pe_ttm == finnhub_pe
-    assert data.eps_ttm is None, why  # not per this ticker's share
-    assert data.eps_annual is None
+    # EPS is shown in its own currency, labelled as another share's, so it
+    # can't be divided into this ticker's USD price.
+    assert data.eps_ttm == recorded["epsTTM"]
+    assert data.eps_annual == recorded["epsAnnual"]
+    assert data.eps_currency == currency
+    assert data.eps_per == market_data.EPS_PER_HOME_SHARE, why
 
 
 def test_loss_maker_shows_eps_but_no_pe(finnhub: _Finnhub) -> None:
@@ -290,12 +298,21 @@ def test_loss_maker_shows_eps_but_no_pe(finnhub: _Finnhub) -> None:
     assert data.pe_annual is None
     assert data.pe_source is None
     assert data.eps_ttm == -2.5821
+    assert data.eps_per == market_data.EPS_PER_THIS_SHARE
+
+
+def test_tsm_eps_is_in_taiwan_dollars(finnhub: _Finnhub) -> None:
+    data = get_live_market_data("TSM")
+
+    assert (data.eps_ttm, data.eps_currency) == (87.3818, "TWD")
+    assert data.eps_ttm_period_end == dt.date(2026, 6, 30)
 
 
 def test_etf_has_no_valuation(finnhub: _Finnhub) -> None:
     data = get_live_market_data("SPY")
 
     assert (data.pe_ttm, data.eps_ttm, data.pe_source) == (None, None, None)
+    assert (data.eps_currency, data.eps_per) == (None, None)
 
 
 def test_zero_quote_means_not_found_and_stops_early(finnhub: _Finnhub) -> None:
