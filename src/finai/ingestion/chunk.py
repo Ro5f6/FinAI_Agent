@@ -87,6 +87,38 @@ def count_tokens(text: str) -> int:
     return len(_encoding().encode(text, disallowed_special=()))
 
 
+def _hard_split(text: str, max_tokens: int) -> list[str]:
+    """Cut ``text`` at token boundaries into pieces of at most ``max_tokens``.
+
+    The last resort for text no separator can split: a string with no spaces,
+    a long URL, a single table row longer than a chunk. A cut never falls
+    inside a character: "€" or "—" can span two tokens, and decoding half of
+    one gives "\ufffd". A window that would cut one, or that re-tokenises
+    longer once decoded, shrinks until it fits.
+    """
+    encoding = _encoding()
+    tokens = encoding.encode(text, disallowed_special=())
+    pieces: list[str] = []
+    start = 0
+    while start < len(tokens):
+        end = min(start + max_tokens, len(tokens))
+        while True:
+            try:
+                piece = encoding.decode_bytes(tokens[start:end]).decode("utf-8")
+            except UnicodeDecodeError:
+                # Ends inside a character. Shrink, or grow if one token is
+                # only part of a character (possible only for tiny limits).
+                end = end - 1 if end - start > 1 else end + 1
+                continue
+            if end - start > 1 and count_tokens(piece) > max_tokens:
+                end -= max(1, (end - start) // 10)
+                continue
+            break
+        pieces.append(piece)
+        start = end
+    return pieces
+
+
 def _is_table(block: str) -> bool:
     lines = block.split("\n")
     with_gaps = sum(bool(_CELL_GAP.search(line)) for line in lines)
@@ -291,7 +323,17 @@ def chunk_section(
             add(piece, is_prose=True)
 
     flush(carry_overlap=False)
-    return chunks
+    # Separators can't split everything (no spaces, a row longer than a
+    # chunk); without this, such text became a chunk of 2,500-18,000 tokens.
+    return [
+        piece
+        for chunk in chunks
+        for piece in (
+            _hard_split(chunk, max_tokens)
+            if count_tokens(chunk) > max_tokens
+            else [chunk]
+        )
+    ]
 
 
 class ChunkPayload(BaseModel):

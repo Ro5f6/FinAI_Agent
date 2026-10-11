@@ -5,6 +5,8 @@ small token limits make the splitting visible.
 """
 
 import re
+import subprocess
+import sys
 import uuid
 from itertools import pairwise
 
@@ -59,6 +61,41 @@ def test_every_chunk_is_within_the_limit() -> None:
 
     assert len(chunks) > 3
     assert all(count_tokens(c) <= 120 for c in chunks)
+
+
+# Inputs no separator can split. Each once produced a chunk of 2,500-18,000
+# tokens; none appears in the ten filings measured, but S&P 500 filings may
+# carry long URLs or one-row tables.
+_HARD_INPUTS = {
+    "no sentence ends": " ".join(f"word{i}" for i in range(3000)),
+    "unbroken string": "x" * 20_000,
+    "long url": "See https://example.com/" + "a1b2c3" * 3000 + " for details.",
+    "one huge table row": "Year  2025  2024\n"
+    + "  ".join(f"{i},{i:03d}" for i in range(2000)),
+    "multi-byte run": "€" * 5000 + "—" * 5000 + "日本語" * 2000,
+}
+
+
+@pytest.mark.parametrize("limit", [50, 120, 400, 1_000])
+@pytest.mark.parametrize("name", list(_HARD_INPUTS))
+def test_no_input_exceeds_the_limit(name: str, limit: int) -> None:
+    chunks = chunk_section(
+        _HARD_INPUTS[name], max_tokens=limit, overlap_tokens=limit // 10
+    )
+
+    assert chunks
+    assert max(count_tokens(c) for c in chunks) <= limit
+
+
+@pytest.mark.parametrize("limit", [7, 100, 1_000])
+def test_last_resort_cut_keeps_every_character(limit: int) -> None:
+    """A cut inside "€" or "—" would decode as "\ufffd"."""
+    text = "Company’s revenue—€1,234;日本📈" * 400
+
+    pieces = chunk_module._hard_split(text, limit)
+
+    assert "".join(pieces) == text
+    assert all(count_tokens(p) <= limit for p in pieces)
 
 
 def test_short_paragraphs_are_packed_together() -> None:
@@ -315,6 +352,27 @@ def test_point_ids_are_the_same_across_runs() -> None:
 
     assert first == second
     assert len(set(first)) == len(first)
+
+
+def test_point_ids_are_the_same_in_a_new_process() -> None:
+    """Guards against IDs that depend on per-process state, such as Python's
+    randomised ``hash()``: a fresh interpreter must produce the same IDs."""
+    script = (
+        "from finai.ingestion.chunk import chunk_filing\n"
+        "from finai.ingestion.fetch import FilingMeta\n"
+        "m = FilingMeta('AAPL', '0000320193-25-000079', '10-K', '2025-10-31',"
+        " '2025-09-27', 2025)\n"
+        "body = '\\n\\n'.join(f'Paragraph {i} about supply risk.' for i in range(30))\n"
+        "print(' '.join(p.point_id() for p in chunk_filing(m, {'Item 1A': body}, 40, 5)))\n"
+    )
+    run = subprocess.run(
+        [sys.executable, "-c", script], capture_output=True, text=True, check=True
+    )
+    body = "\n\n".join(f"Paragraph {i} about supply risk." for i in range(30))
+    here = [p.point_id() for p in chunk_filing(_META, {"Item 1A": body}, 40, 5)]
+
+    assert run.stdout.split() == here
+    assert len(here) > 1
 
 
 @pytest.mark.parametrize(

@@ -10,7 +10,8 @@ the decisions and why; `git log` holds the reasoning per change.
 Phase 0 complete except `[HUMAN]` 0.1.x accounts. The repo is pushed to
 github.com/Ro5f6/FinAI_Agent (public; `docs/DECISIONS.md` is gitignored and
 kept local for now). Step 1.1 complete. In
-step 1.2, tasks 1.2.1–1.2.19 are done; **1.2.20 is next**. Ingest with
+Step 1.2 complete (Done when met: the supply-chain query returns Item 1A
+chunks; re-ingesting 9 filings left 487 points, 0 stale). **1.3.1 is next**. Ingest with
 `python -m finai.ingestion.ingest --ticker AAPL NVDA MSFT --years 3` (needs
 `docker compose up -d`). The local `sec_filings` holds those 9 filings, 487 points. AAPL's latest
 10-K (45 chunks) is embedded in the local `sec_filings`.
@@ -196,6 +197,13 @@ step 1.2, tasks 1.2.1–1.2.19 are done; **1.2.20 is next**. Ingest with
   table had in the filing, chunks keep the year in 99.6% (680/683) and the unit
   in 98.9% (659/666). The losses are JPM tables printed across pages, where
   only the first page carries "(in millions)".
+- Separators can't split text with none of them: a string with no spaces, a
+  long URL, a table row longer than a chunk gave single chunks of 2,500-18,000
+  tokens. A last-resort cut at token boundaries now bounds every chunk. It
+  must cut on whole characters: "€", "—", "日" and emoji can span two cl100k
+  tokens, and decoding half gives "\ufffd"; `decode_bytes(...).decode("utf-8")`
+  raising tells a window to shrink. Real filings never trigger it: re-ingesting
+  the 9 filings changed no chunk.
 - "Some year in the chunk" is too weak a check. AAPL Note 4 nests `Level 1:`
   and `Level 2 (1):` inside `2025` and `2024`, and its caption names both
   years, so a continuation piece of 2024 rows passed while labelled only
