@@ -10,8 +10,9 @@ the decisions and why; `git log` holds the reasoning per change.
 Phase 0 complete except `[HUMAN]` 0.1.x accounts. The repo is pushed to
 github.com/Ro5f6/FinAI_Agent (public; `docs/DECISIONS.md` is gitignored and
 kept local for now). Step 1.1 complete. In
-step 1.2, tasks 1.2.1–1.2.18 are done; **1.2.19 is next**. Ingest with
-`python -m finai.ingestion.ingest --ticker AAPL` (needs `docker compose up -d`). AAPL's latest
+step 1.2, tasks 1.2.1–1.2.19 are done; **1.2.20 is next**. Ingest with
+`python -m finai.ingestion.ingest --ticker AAPL NVDA MSFT --years 3` (needs
+`docker compose up -d`). The local `sec_filings` holds those 9 filings, 487 points. AAPL's latest
 10-K (45 chunks) is embedded in the local `sec_filings`.
 
 ## Verified library behaviour (edgartools 5.60.0)
@@ -48,6 +49,19 @@ step 1.2, tasks 1.2.1–1.2.18 are done; **1.2.19 is next**. Ingest with
 - The rate limiter is `pyrate_limiter.InMemoryBucket`, **per process** (default
   9/s, SEC caps at 10/s). Parallel workers multiply the rate rather than sharing
   it — the most likely way to get IP-blocked.
+
+## Verified multi-year ingest (edgartools 5.60.0)
+
+- `get_filings(...).latest(1)` returns a bare `EntityFiling`; `latest(n)` for
+  n > 1 an `EntityFilings`; `latest(0)` None. More than exist returns what
+  exists (RIVN: 5). `get_latest_10ks` normalises to a list.
+- Accession prefixes are the submitter, not the company: MSFT FY2026 is
+  `0001193125-…` (a filing agent), FY2025 `0000950170-…` (another).
+- AAPL/NVDA/MSFT FY2023-2026 (9 filings): 44-77 chunks each, 487 in all, 26 s.
+  NVDA's Item 8 is a 154-char cross-reference every year and is dropped. No
+  page numbers or bare running headers in any stored chunk. Year filter
+  returns each year's own answer (NVDA data center growth: FY2026 68%,
+  FY2025 142%, FY2024 217%).
 
 ## Verified table and XBRL behaviour (edgartools 5.60.0, ten filers)
 

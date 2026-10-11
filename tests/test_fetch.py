@@ -25,6 +25,7 @@ from finai.ingestion.fetch import (
     filing_html,
     filing_meta,
     get_latest_10k,
+    get_latest_10ks,
     read_archived_filing,
 )
 
@@ -54,11 +55,19 @@ def test_identity_is_not_anonymous() -> None:
 
 
 class _StubFilings:
-    def __init__(self, latest: object | None) -> None:
-        self._latest = latest
+    """Mimics edgartools: ``latest(1)`` returns one filing, ``latest(n)`` a
+    collection of up to n, and None when there are no filings."""
 
-    def latest(self) -> object | None:
-        return self._latest
+    def __init__(self, latest: object | None, available: int = 5) -> None:
+        self._latest = latest
+        self._available = available
+
+    def latest(self, n: int = 1) -> object | None:
+        if self._latest is None or n < 1:
+            return None
+        if n == 1:
+            return self._latest
+        return [self._latest] * min(n, self._available)
 
 
 def _stub_company(
@@ -88,6 +97,27 @@ def test_get_latest_10k_excludes_amendments(monkeypatch: pytest.MonkeyPatch) -> 
     assert captured["ticker"] == "AAPL"
     assert captured["form"] == "10-K"
     assert captured["amendments"] is False
+
+
+def test_get_latest_10ks_always_returns_a_list(monkeypatch: pytest.MonkeyPatch) -> None:
+    """latest(1) returns a bare filing; callers still get a list."""
+    sentinel = object()
+    _stub_company(monkeypatch, sentinel)
+
+    assert get_latest_10ks("AAPL", 1) == [sentinel]
+    assert get_latest_10ks("AAPL", 3) == [sentinel] * 3
+
+
+def test_get_latest_10ks_returns_what_exists(monkeypatch: pytest.MonkeyPatch) -> None:
+    sentinel = object()
+    _stub_company(monkeypatch, sentinel)
+
+    assert len(get_latest_10ks("AAPL", 10)) == 5
+
+
+def test_get_latest_10ks_rejects_zero_years() -> None:
+    with pytest.raises(ValueError, match="at least 1"):
+        get_latest_10ks("AAPL", 0)
 
 
 def test_get_latest_10k_raises_when_no_filings(monkeypatch: pytest.MonkeyPatch) -> None:

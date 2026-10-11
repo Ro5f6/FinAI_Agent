@@ -77,13 +77,30 @@ def get_latest_10k(ticker: str) -> EntityFiling:
         FilingNotFoundError: the company exists but has filed no 10-K.
         CompanyNotFoundError: edgartools does not recognise the ticker.
     """
+    return get_latest_10ks(ticker, 1)[0]
+
+
+def get_latest_10ks(ticker: str, n: int) -> list[EntityFiling]:
+    """Return up to ``n`` most recent original 10-Ks for ``ticker``, newest first.
+
+    ``latest(1)`` returns a bare ``EntityFiling`` but ``latest(n)`` for n > 1
+    an ``EntityFilings``, so the result is normalised to a list. Asking for
+    more years than exist returns what there is (RIVN, listed 2021, has 5).
+
+    Raises:
+        ValueError: ``n`` is below 1 (``latest(0)`` returns None).
+        FilingNotFoundError: the company exists but has filed no 10-K.
+        CompanyNotFoundError: edgartools does not recognise the ticker.
+    """
+    if n < 1:
+        raise ValueError(f"n must be at least 1, got {n}")
     configure_edgar()
 
     filings = Company(ticker).get_filings(form="10-K", amendments=False)
-    latest = filings.latest()
+    latest = filings.latest(n)
     if latest is None:
         raise FilingNotFoundError(f"no 10-K filings found for ticker {ticker!r}")
-    return latest
+    return [latest] if n == 1 else list(latest)
 
 
 def filing_html(filing: EntityFiling) -> str:

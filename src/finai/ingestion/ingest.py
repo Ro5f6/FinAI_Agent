@@ -1,6 +1,6 @@
-"""Ingest a company's latest 10-K into Qdrant.
+"""Ingest companies' recent 10-Ks into Qdrant.
 
-    python -m finai.ingestion.ingest --ticker AAPL
+    python -m finai.ingestion.ingest --ticker AAPL NVDA MSFT --years 3
 
 Fetch, archive, extract, clean, chunk, embed and upsert, in that order; each
 step is the module of the same name. Re-running is safe: chunk IDs are
@@ -18,7 +18,7 @@ from edgar.entity import EntityFiling
 from finai.ingestion.chunk import chunk_filing
 from finai.ingestion.clean import clean_items
 from finai.ingestion.embed import embed_documents
-from finai.ingestion.fetch import archive_filing, filing_meta, get_latest_10k
+from finai.ingestion.fetch import archive_filing, filing_meta, get_latest_10ks
 from finai.ingestion.parse import extract_filing_items
 from finai.ingestion.store import (
     ensure_collection,
@@ -82,28 +82,52 @@ def ingest_filing(filing: EntityFiling, ticker: str) -> IngestResult:
     )
 
 
-def ingest_ticker(ticker: str) -> IngestResult:
-    """Ingest the latest 10-K for ``ticker``."""
-    return ingest_filing(get_latest_10k(ticker), ticker)
+def ingest_ticker(ticker: str, years: int = 1) -> list[IngestResult]:
+    """Ingest the latest ``years`` 10-Ks for ``ticker``, newest first.
+
+    Each year has its own accession, so its chunks get their own IDs and the
+    years don't overwrite each other.
+    """
+    return [ingest_filing(f, ticker) for f in get_latest_10ks(ticker, years)]
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="python -m finai.ingestion.ingest",
-        description="Ingest a company's latest 10-K into Qdrant.",
+        description="Ingest companies' recent 10-Ks into Qdrant.",
     )
-    parser.add_argument("--ticker", required=True, help="e.g. AAPL")
+    parser.add_argument(
+        "--ticker", required=True, nargs="+", help="one or more, e.g. AAPL NVDA"
+    )
+    parser.add_argument(
+        "--years",
+        type=int,
+        default=1,
+        help="10-Ks per company, newest first (default 1)",
+    )
     args = parser.parse_args(argv)
+    if args.years < 1:
+        parser.error("--years must be at least 1")
 
-    try:
-        result = ingest_ticker(args.ticker)
-    except LookupError as error:
-        # edgartools' CompanyNotFoundError and our FilingNotFoundError are both
-        # LookupErrors: an unknown ticker, or a company with no 10-K.
-        print(f"error: {error}", file=sys.stderr)
-        return 1
-    print(result.summary())
-    return 0
+    failed = False
+    for ticker in args.ticker:
+        try:
+            results = ingest_ticker(ticker, args.years)
+        except LookupError as error:
+            # edgartools' CompanyNotFoundError and our FilingNotFoundError are
+            # both LookupErrors: an unknown ticker, or a company with no 10-K.
+            # The other tickers still run.
+            print(f"error: {error}", file=sys.stderr)
+            failed = True
+            continue
+        for result in results:
+            print(result.summary(), flush=True)
+        if len(results) < args.years:
+            print(
+                f"{ticker.upper()}: only {len(results)} of {args.years} years exist",
+                flush=True,
+            )
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":
