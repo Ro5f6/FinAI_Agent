@@ -75,6 +75,11 @@ class Settings(BaseSettings):
         description="Tokens shared between consecutive chunks, about 10% of CHUNK_TOKENS.",
     )
 
+    # --- Market data ---
+    FINNHUB_API_KEY: SecretStr = Field(
+        description="Finnhub API key for live quotes. Free plan: US listings, 60 calls/min.",
+    )
+
     # --- Agent state ---
     REDIS_URL: str = Field(
         default="redis://localhost:6379",

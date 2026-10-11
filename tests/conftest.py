@@ -22,6 +22,7 @@ _PLACEHOLDERS = {
     "ANTHROPIC_API_KEY": "sk-ant-collection-only",
     "SEC_IDENTITY": "Collection Only collection@example.com",
     "VOYAGE_API_KEY": "pa-collection-only",
+    "FINNHUB_API_KEY": "finnhub-collection-only",
 }
 _local_env = dotenv_values(".env")
 for _name, _placeholder in _PLACEHOLDERS.items():

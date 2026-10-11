@@ -11,7 +11,8 @@ Phase 0 complete except `[HUMAN]` 0.1.x accounts. The repo is pushed to
 github.com/Ro5f6/FinAI_Agent (public; `docs/DECISIONS.md` is gitignored and
 kept local for now). Step 1.1 complete. In
 Step 1.2 complete (Done when met: the supply-chain query returns Item 1A
-chunks; re-ingesting 9 filings left 487 points, 0 stale). **1.3.1 is next**. Ingest with
+chunks; re-ingesting 9 filings left 487 points, 0 stale). In step 1.3, 1.3.1
+is done; **1.3.2 is next**. Ingest with
 `python -m finai.ingestion.ingest --ticker AAPL NVDA MSFT --years 3` (needs
 `docker compose up -d`). The local `sec_filings` holds those 9 filings, 487 points. AAPL's latest
 10-K (45 chunks) is embedded in the local `sec_filings`.
@@ -147,6 +148,28 @@ chunks; re-ingesting 9 filings left 487 points, 0 stale). **1.3.1 is next**. Ing
 - A shell that has sourced `.env` exports `EMBEDDING_MODEL`, which overrides
   `.env` and the `Settings` default. After the switch, the terminal running
   this session still had `BAAI/bge-small-en-v1.5` and the API rejected it.
+
+## Verified Finnhub behaviour (free key, 2026-10-11)
+
+- `/quote` → `c` price, `d` change, `dp` % change, `h`/`l`/`o`, `pc` previous
+  close, `t` Unix seconds (Friday's close, 20:00 UTC, on a Sunday).
+  `/stock/profile2` → `name`, `currency`, `marketCapitalization` **in
+  millions**. `/stock/metric?metric=all` → `metric.52WeekHigh/52WeekLow`,
+  `metric.peTTM`. Auth: header `X-Finnhub-Token`. No rate-limit headers.
+- **Symbols are case-sensitive**: `aapl` gets an all-zero quote.
+- Unknown or delisted: 200 with an all-zero quote including `t: 0` (ZZZZ,
+  TWTR), or 403 "You don't have access" (ZZZQX). Non-US listings (SHOP.TO)
+  are 403 on the free plan. `BRK.B` and `BRK-B` both work.
+- **Market cap is in the reporting currency**: TSM TWD, ASML EUR, BABA CNY,
+  while their US quotes are USD. ETFs (SPY) have an empty profile.
+- **The 52-week range is the primary listing's or main share class's**: TSM
+  1375-2590 (TWD) at a $453 price, TM in JPY, NVO in DKK, SHEL in pence
+  despite USD reporting, BRK.B the class A prices. Kept only if the currency
+  is USD (or absent, for ETFs) and the price is within the range ±5%.
+- P/E is None for loss-makers (RIVN) and ETFs.
+- **`/stock/candle` returns 403 on the free key**: price history is paid-only,
+  so Alpaca stays (D-013, 1.3.24).
+- A quote takes ~200-360 ms (three calls); cached it takes 0.01 ms.
 
 ## Verified Qdrant client (qdrant-client 1.19.1, server v1.19.1)
 
