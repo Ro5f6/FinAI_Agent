@@ -10,7 +10,8 @@ the decisions and why; `git log` holds the reasoning per change.
 Phase 0 complete except `[HUMAN]` 0.1.x accounts. The repo is pushed to
 github.com/Ro5f6/FinAI_Agent (public; `docs/DECISIONS.md` is gitignored and
 kept local for now). Step 1.1 complete. In
-step 1.2, tasks 1.2.1–1.2.17 are done; **1.2.18 is next**. AAPL's latest
+step 1.2, tasks 1.2.1–1.2.18 are done; **1.2.19 is next**. Ingest with
+`python -m finai.ingestion.ingest --ticker AAPL` (needs `docker compose up -d`). AAPL's latest
 10-K (45 chunks) is embedded in the local `sec_filings`.
 
 ## Verified library behaviour (edgartools 5.60.0)
