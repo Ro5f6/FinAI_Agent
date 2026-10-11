@@ -12,7 +12,8 @@ github.com/Ro5f6/FinAI_Agent (public; `docs/DECISIONS.md` is gitignored and
 kept local for now). Step 1.1 complete. In
 Step 1.2 complete (Done when met: the supply-chain query returns Item 1A
 chunks; re-ingesting 9 filings left 487 points, 0 stale). In step 1.3, 1.3.1
-is done; **1.3.2 is next**. Ingest with
+and 1.3.2 are done;
+**1.3.3 is next**. Ingest with
 `python -m finai.ingestion.ingest --ticker AAPL NVDA MSFT --years 3` (needs
 `docker compose up -d`). The local `sec_filings` holds those 9 filings, 487 points. AAPL's latest
 10-K (45 chunks) is embedded in the local `sec_filings`.
@@ -218,6 +219,13 @@ is done; **1.3.2 is next**. Ingest with
   risks?" filtered to AAPL returns 5 of 5 from Item 1A; #1 (0.632) holds the
   "single or limited sources" paragraph, #5 (0.566) a second mention. Query
   embedding 478 ms, search 51 ms from the laptop.
+- `facet(collection_name, key, facet_filter=, limit=10, exact=)` returns
+  `.hits` of `(value, count)` **ordered by count, not value**, and limits to
+  10 values by default. Works in memory too. `indexed_years` sorts them.
+- Unfiltered search over 3 years mixes them: AAPL's supply-chain top 5 held
+  FY2025/2024/2023, two the same paragraph; MSFT "How fast is Azure
+  growing?" ranked FY2024 first. With the year defaulted to the latest, AAPL
+  returns 5 distinct FY2025 passages and MSFT FY2026's Azure growth sentence.
 - In-memory mode supports `HasIdCondition`, `FilterSelector` deletes and
   `retrieve`, so `upsert_filing` is tested offline.
 - `PayloadSchemaType` values: keyword, integer, float, geo, text, bool,

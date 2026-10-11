@@ -17,6 +17,7 @@ from finai.ingestion.store import (
     IngestCountError,
     ensure_collection,
     ensure_payload_indexes,
+    indexed_years,
     qdrant_client,
     search,
     upsert_filing,
@@ -242,6 +243,15 @@ def test_supply_chain_question_finds_apples_risk_factors() -> None:
     assert len(hits) == 5
     assert hits[0].chunk.section == "Item 1A"
     assert any("single or limited sources" in h.chunk.text for h in hits)
+
+
+def test_indexed_years_are_newest_first(small: QdrantClient) -> None:
+    """Facets come back by count; the years must come back by year."""
+    _seed_two_companies(small)
+
+    assert indexed_years(small, "aapl", name="c") == [2025, 2024]
+    assert indexed_years(small, "NVDA", name="c") == [2025]
+    assert indexed_years(small, "TSLA", name="c") == []
 
 
 class _LosingClient:

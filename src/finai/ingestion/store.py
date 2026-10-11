@@ -215,3 +215,27 @@ def search(
         SearchHit(point.score, ChunkPayload(**point.payload))
         for point in response.points
     ]
+
+
+def indexed_years(
+    client: QdrantClient, ticker: str, name: str | None = None
+) -> list[int]:
+    """Fiscal years with chunks for ``ticker``, newest first; [] if none.
+
+    Uses Qdrant's facet count over the integer index, so nothing is scanned.
+    Facets come back ordered by count, not value, hence the sort.
+    """
+    response = client.facet(
+        collection_name=name or settings.COLLECTION_NAME,
+        key="fiscal_year",
+        facet_filter=models.Filter(
+            must=[
+                models.FieldCondition(
+                    key="ticker", match=models.MatchValue(value=ticker.upper())
+                )
+            ]
+        ),
+        limit=100,
+        exact=True,
+    )
+    return sorted((int(hit.value) for hit in response.hits), reverse=True)
