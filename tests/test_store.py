@@ -5,9 +5,11 @@ the server from docker compose: ``uv run pytest -m qdrant``.
 """
 
 import pytest
+import voyageai
 from qdrant_client import QdrantClient, models
 
 from finai.config import settings
+from finai.ingestion import embed
 from finai.ingestion.chunk import ChunkPayload, chunk_filing
 from finai.ingestion.fetch import FilingMeta
 from finai.ingestion.store import (
@@ -264,6 +266,103 @@ def test_indexed_years_are_newest_first(small: QdrantClient) -> None:
     assert indexed_years(small, "aapl", name="c") == [2025, 2024]
     assert indexed_years(small, "NVDA", name="c") == [2025]
     assert indexed_years(small, "TSLA", name="c") == []
+
+
+def _seed_ranked(client: QdrantClient, n: int = 40) -> list[ChunkPayload]:
+    """``n`` AAPL chunks whose embedding rank is their chunk_index."""
+    body = "\n\n".join(f"Paragraph {i} about supply risk." for i in range(n))
+    payloads = chunk_filing(_meta("A-1"), {"Item 1A": body}, 8, 0)
+    vectors = [[1.0, i / 1000, 0.0, 0.0] for i in range(len(payloads))]
+    upsert_filing(client, payloads, vectors, name="c")
+    return payloads
+
+
+def test_rerank_reorders_the_candidates(small: QdrantClient, monkeypatch) -> None:
+    _seed_ranked(small)
+    seen = []
+
+    def reverse(question, texts):
+        seen.append(len(texts))
+        return [(i, float(i)) for i in reversed(range(len(texts)))]
+
+    monkeypatch.setattr(embed, "rerank", reverse)
+
+    hits = search(small, [1.0, 0.0, 0.0, 0.0], "AAPL", k=3, name="c", question="supply")
+
+    assert seen == [settings.RERANK_CANDIDATES]
+    # The reranker's top pick was the embedding's 30th.
+    assert [h.chunk.chunk_index for h in hits] == [29, 28, 27]
+    assert [h.relevance for h in hits] == [29.0, 28.0, 27.0]
+
+
+def test_without_a_question_there_is_no_rerank(
+    small: QdrantClient, monkeypatch
+) -> None:
+    _seed_ranked(small)
+    monkeypatch.setattr(embed, "rerank", lambda q, t: pytest.fail("reranked"))
+
+    hits = search(small, [1.0, 0.0, 0.0, 0.0], "AAPL", k=3, name="c")
+
+    assert [h.chunk.chunk_index for h in hits] == [0, 1, 2]
+    assert all(h.relevance is None for h in hits)
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        voyageai.error.RateLimitError("slow down"),
+        voyageai.error.ServiceUnavailableError("down"),
+        voyageai.error.Timeout("too slow"),
+        voyageai.error.APIConnectionError("no route"),
+    ],
+)
+def test_transient_rerank_failure_falls_back_to_embedding_order(
+    small: QdrantClient, monkeypatch, error
+) -> None:
+    _seed_ranked(small)
+
+    def fail(question, texts):
+        raise error
+
+    monkeypatch.setattr(embed, "rerank", fail)
+
+    hits = search(small, [1.0, 0.0, 0.0, 0.0], "AAPL", k=3, name="c", question="supply")
+
+    assert [h.chunk.chunk_index for h in hits] == [0, 1, 2]
+    assert all(h.relevance is None for h in hits)
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        voyageai.error.AuthenticationError("bad key"),
+        voyageai.error.InvalidRequestError("unknown model rerank-9"),
+    ],
+)
+def test_configuration_errors_are_not_hidden(
+    small: QdrantClient, monkeypatch, error
+) -> None:
+    """A wrong key or model must not silently turn reranking off."""
+    _seed_ranked(small)
+
+    def fail(question, texts):
+        raise error
+
+    monkeypatch.setattr(embed, "rerank", fail)
+
+    with pytest.raises(type(error)):
+        search(small, [1.0, 0.0, 0.0, 0.0], "AAPL", k=3, name="c", question="supply")
+
+
+def test_rerank_client_fails_fast() -> None:
+    """Search waits on it; the ingest client's 5 retries could stall a minute."""
+    embed._rerank_client.cache_clear()
+
+    client = embed._rerank_client()
+
+    assert client.max_retries == embed.RERANK_RETRIES == 1
+    assert embed.RERANK_TIMEOUT_S <= 5
+    embed._rerank_client.cache_clear()
 
 
 class _LosingClient:

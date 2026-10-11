@@ -3,6 +3,7 @@
 Verified against qdrant-client 1.19.1 and server v1.19.1 (docs/CONTEXT.md).
 """
 
+import logging
 from collections.abc import Sequence
 from functools import lru_cache
 from typing import NamedTuple
@@ -10,7 +11,10 @@ from typing import NamedTuple
 from qdrant_client import QdrantClient, models
 
 from finai.config import settings
+from finai.ingestion import embed
 from finai.ingestion.chunk import ChunkPayload
+
+log = logging.getLogger(__name__)
 
 DISTANCE = models.Distance.COSINE
 
@@ -32,10 +36,12 @@ class IngestCountError(RuntimeError):
 
 
 class SearchHit(NamedTuple):
-    """One retrieved chunk and its cosine similarity to the query."""
+    """One retrieved chunk, its cosine similarity to the query and, when the
+    search was reranked, the reranker's relevance score (which set the order)."""
 
     score: float
     chunk: ChunkPayload
+    relevance: float | None = None
 
 
 # Points per upsert request. Each point carries a 1024-float vector and up to
@@ -180,8 +186,14 @@ def search(
     fiscal_year: int | None = None,
     k: int = 5,
     name: str | None = None,
+    question: str | None = None,
 ) -> list[SearchHit]:
-    """Return the ``k`` chunks most similar to ``vector`` for one company.
+    """Return the ``k`` chunks most relevant to the query for one company.
+
+    With ``question``, the top ``RERANK_CANDIDATES`` by embedding are reranked
+    and the best ``k`` returned: on the 18-question eval this took top-5 hits
+    from 14 to 17 and top-1 from 9 to 14 (docs/evals/retrieval-reranking.md).
+    If the reranker is briefly unavailable, the embedding order is returned.
 
     ``ticker`` is required: every 10-K search is about one company, and an
     unfiltered search would rank other companies' risk factors alongside its
@@ -208,13 +220,21 @@ def search(
         collection_name=name or settings.COLLECTION_NAME,
         query=list(vector),
         query_filter=models.Filter(must=must),
-        limit=k,
+        limit=max(k, settings.RERANK_CANDIDATES) if question else k,
         with_payload=True,
     )
-    return [
+    hits = [
         SearchHit(point.score, ChunkPayload(**point.payload))
         for point in response.points
     ]
+    if not question or len(hits) < 2:
+        return hits[:k]
+    try:
+        order = embed.rerank(question, [h.chunk.text for h in hits])
+    except embed.TRANSIENT_ERRORS as error:
+        log.warning("reranker unavailable, using embedding order: %s", error)
+        return hits[:k]
+    return [hits[i]._replace(relevance=score) for i, score in order[:k]]
 
 
 def indexed_years(

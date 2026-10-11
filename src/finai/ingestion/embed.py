@@ -19,6 +19,22 @@ MAX_BATCH_TOKENS = 100_000
 # The client retries rate limits, 503s and timeouts with exponential backoff
 # (1-16 s) when this is above 0; its default is 0, meaning no retries.
 MAX_RETRIES = 5
+# Reranking runs inside a search, which falls back to embedding order if it
+# fails, so it fails fast instead of backing off for up to a minute.
+RERANK_RETRIES = 1
+RERANK_TIMEOUT_S = 5.0
+
+# Failures worth falling back from. A bad key, unknown model or malformed
+# request is a configuration bug and raises instead of silently disabling
+# reranking.
+TRANSIENT_ERRORS = (
+    voyageai.error.RateLimitError,
+    voyageai.error.ServiceUnavailableError,
+    voyageai.error.ServerError,
+    voyageai.error.Timeout,
+    voyageai.error.APIConnectionError,
+    voyageai.error.TryAgain,
+)
 
 
 @lru_cache(maxsize=1)
@@ -32,6 +48,26 @@ def voyage_client() -> voyageai.Client:
         api_key=settings.VOYAGE_API_KEY.get_secret_value(),
         max_retries=MAX_RETRIES,
     )
+
+
+@lru_cache(maxsize=1)
+def _rerank_client() -> voyageai.Client:
+    return voyageai.Client(
+        api_key=settings.VOYAGE_API_KEY.get_secret_value(),
+        max_retries=RERANK_RETRIES,
+        timeout=RERANK_TIMEOUT_S,
+    )
+
+
+def rerank(question: str, texts: list[str]) -> list[tuple[int, float]]:
+    """Return ``(index into texts, relevance)`` pairs, most relevant first.
+
+    Raises one of ``TRANSIENT_ERRORS`` when Voyage is briefly unavailable;
+    the caller decides whether to fall back.
+    """
+    result = _rerank_client().rerank(question, texts, model=settings.RERANK_MODEL)
+    ranked = sorted(result.results, key=lambda r: r.relevance_score, reverse=True)
+    return [(r.index, r.relevance_score) for r in ranked]
 
 
 def batches(

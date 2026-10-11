@@ -14,7 +14,7 @@ gitignored and kept local for now).
 Steps 1.1 and 1.2 complete (1.2 Done when: the supply-chain query returns
 Item 1A chunks; re-ingesting 9 filings left 487 points, 0 stale). In step
 1.3, tasks 1.3.1-1.3.6 are done (tools built and wrapped, state defined);
-**1.3.7 is next**.
+**1.3.7 is next**. Added outside the original order: 1.2.21, reranking.
 
 Ingest with `python -m finai.ingestion.ingest --ticker AAPL NVDA MSFT
 --years 3` (needs `docker compose up -d`). The local `sec_filings` holds
@@ -146,6 +146,15 @@ those 9 filings (FY2023-2026), 487 points.
   The async client opens a new aiohttp session per request (no reuse): matters
   for the async FastAPI app in phase 2.
 - AAPL's 45 chunks embed in 1-2 s with one request.
+- `Client.rerank(query, documents, model, top_k=None, truncation=True)`
+  returns `.results` of `(index, relevance_score, ...)` and `.total_tokens`.
+  `rerank-2.5`: $0.05/M tokens, billed as query tokens x documents + document
+  tokens (~30K for 30 chunks). The pricing page contradicts itself on free
+  reranker tokens. Errors: `voyageai.error.{RateLimitError,
+  ServiceUnavailableError, ServerError, Timeout, APIConnectionError, TryAgain}`
+  are transient; `AuthenticationError`, `InvalidRequestError`,
+  `MalformedRequestError` are configuration errors.
+- Reranking 30 chunks: median 256 ms; 50: 409 ms; 100: 440 ms.
 - Query latency from a laptop: median 172 ms (voyage-4), 204 ms
   (voyage-finance-2) over 10 calls.
 - A shell that has sourced `.env` exports `EMBEDDING_MODEL`, which overrides
@@ -222,6 +231,16 @@ those 9 filings (FY2023-2026), 487 points.
 - **`/stock/candle` returns 403 on the free key**: price history is paid-only,
   so Alpaca stays (D-013, 1.3.24).
 - A quote takes ~200-360 ms (three calls); cached it takes 0.01 ms.
+
+## Verified hybrid search (qdrant-client 1.19.1, fastembed 0.9.0)
+
+- Named dense vector + `sparse_vectors_config={"bm25":
+  SparseVectorParams(modifier=Modifier.IDF)}`; FastEmbed `Qdrant/bm25` gives
+  sparse vectors (query terms weight 1; IDF applied by Qdrant). Hybrid query:
+  `query_points(prefetch=[Prefetch(query=dense, using="dense", filter=f),
+  Prefetch(query=sparse, using="bm25", filter=f)],
+  query=FusionQuery(fusion=Fusion.RRF))`. Works in memory. Not used in
+  production (D-029).
 
 ## Verified Qdrant client (qdrant-client 1.19.1, server v1.19.1)
 

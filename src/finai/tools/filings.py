@@ -33,7 +33,10 @@ class TenKPassage(BaseModel):
     section: str
     accession: str
     chunk_index: int
+    # Cosine similarity of the passage to the question; and the reranker's
+    # relevance, which set the order (None if the reranker was unavailable).
     score: float
+    relevance: float | None = None
 
 
 class TenKSearchResult(BaseModel):
@@ -98,7 +101,13 @@ def query_company_10k(
 
     year = fiscal_year if fiscal_year is not None else years[0]
     hits = search(
-        client, embed_query(question), symbol, section=section, fiscal_year=year, k=k
+        client,
+        embed_query(question),
+        symbol,
+        section=section,
+        fiscal_year=year,
+        k=k,
+        question=question,
     )
     return TenKSearchResult(
         status="ok",
@@ -117,6 +126,7 @@ def query_company_10k(
                 accession=h.chunk.accession,
                 chunk_index=h.chunk.chunk_index,
                 score=h.score,
+                relevance=h.relevance,
             )
             for h in hits
         ],

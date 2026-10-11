@@ -64,6 +64,16 @@ class Settings(BaseSettings):
         ge=1,
         description="Vector size; sets the Qdrant collection's size. voyage-4 also offers 256, 512, 2048.",
     )
+    RERANK_MODEL: str = Field(
+        default="rerank-2.5",
+        description="Voyage reranker applied to the top RERANK_CANDIDATES of each 10-K search.",
+    )
+    RERANK_CANDIDATES: int = Field(
+        default=30,
+        ge=1,
+        le=1000,
+        description="Passages the reranker scores per search. 50 and 100 added latency, not hits.",
+    )
     CHUNK_TOKENS: int = Field(
         default=1_000,
         ge=1,

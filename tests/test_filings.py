@@ -8,6 +8,7 @@ import pytest
 from qdrant_client import QdrantClient
 
 from finai.config import settings
+from finai.ingestion import embed
 from finai.ingestion.chunk import chunk_filing
 from finai.ingestion.fetch import FilingMeta
 from finai.ingestion.store import ensure_collection, upsert_filing
@@ -52,6 +53,12 @@ def index(monkeypatch: pytest.MonkeyPatch) -> QdrantClient:
         upsert_filing(client, payloads, vectors)
     monkeypatch.setattr(filings, "qdrant_client", lambda: client)
     monkeypatch.setattr(filings, "embed_query", lambda question: _vector(0))
+    # Keep the embedding order; the reranker itself is tested in test_store.
+    monkeypatch.setattr(
+        embed,
+        "rerank",
+        lambda question, texts: [(i, 1.0 - i / 100) for i in range(len(texts))],
+    )
     return client
 
 
@@ -82,6 +89,7 @@ def test_passages_carry_citation_details(index: QdrantClient) -> None:
     # Both Item 1A chunks share a vector and tie, so either may come first.
     assert first.text in ("Supply risk in 2025.", "Single sources in 2025.")
     assert first.score == pytest.approx(1.0)
+    assert first.relevance == pytest.approx(1.0)
 
 
 def test_section_filter(index: QdrantClient) -> None:
@@ -143,3 +151,4 @@ def test_live_latest_year_answers() -> None:
         section="Item 7",
     )
     assert "Data Center revenue for fiscal year 2024 was up" in nvda.passages[0].text
+    assert all(p.relevance is not None for p in nvda.passages)  # reranked
