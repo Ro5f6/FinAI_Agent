@@ -8,12 +8,14 @@ the decisions and why; `git log` holds the reasoning per change.
 ## State
 
 Phase 0 complete except `[HUMAN]` 0.1.x accounts. The repo is pushed to
-github.com/Ro5f6/FinAI_Agent (public; `docs/DECISIONS.md` is gitignored and
-kept local for now). Step 1.1 complete. In
-Step 1.2 complete (Done when met: the supply-chain query returns Item 1A
-chunks; re-ingesting 9 filings left 487 points, 0 stale). In step 1.3, 1.3.1
-–1.3.3 are done;
-**1.3.4 is next**. Ingest with
+github.com/Ro5f6/FinAI_Agent (public; `PLAN.md` and `docs/DECISIONS.md` are
+gitignored and kept local for now).
+
+Steps 1.1 and 1.2 complete (1.2 Done when: the supply-chain query returns
+Item 1A chunks; re-ingesting 9 filings left 487 points, 0 stale). In step
+1.3, tasks 1.3.1-1.3.3 are done; **1.3.4 is next**.
+
+Ingest with
 `python -m finai.ingestion.ingest --ticker AAPL NVDA MSFT --years 3` (needs
 `docker compose up -d`). The local `sec_filings` holds those 9 filings, 487 points. AAPL's latest
 10-K (45 chunks) is embedded in the local `sec_filings`.
