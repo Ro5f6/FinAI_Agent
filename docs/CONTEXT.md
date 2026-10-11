@@ -15,10 +15,9 @@ Steps 1.1 and 1.2 complete (1.2 Done when: the supply-chain query returns
 Item 1A chunks; re-ingesting 9 filings left 487 points, 0 stale). In step
 1.3, tasks 1.3.1-1.3.3 are done; **1.3.4 is next**.
 
-Ingest with
-`python -m finai.ingestion.ingest --ticker AAPL NVDA MSFT --years 3` (needs
-`docker compose up -d`). The local `sec_filings` holds those 9 filings, 487 points. AAPL's latest
-10-K (45 chunks) is embedded in the local `sec_filings`.
+Ingest with `python -m finai.ingestion.ingest --ticker AAPL NVDA MSFT
+--years 3` (needs `docker compose up -d`). The local `sec_filings` holds
+those 9 filings (FY2023-2026), 487 points.
 
 ## Verified library behaviour (edgartools 5.60.0)
 
