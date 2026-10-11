@@ -10,7 +10,7 @@ the decisions and why; `git log` holds the reasoning per change.
 Phase 0 complete except `[HUMAN]` 0.1.x accounts. The repo is pushed to
 github.com/Ro5f6/FinAI_Agent (public; `docs/DECISIONS.md` is gitignored and
 kept local for now). Step 1.1 complete. In
-step 1.2, tasks 1.2.1–1.2.16 are done; **1.2.17 is next**. AAPL's latest
+step 1.2, tasks 1.2.1–1.2.17 are done; **1.2.18 is next**. AAPL's latest
 10-K (45 chunks) is embedded in the local `sec_filings`.
 
 ## Verified library behaviour (edgartools 5.60.0)
@@ -157,6 +157,13 @@ step 1.2, tasks 1.2.1–1.2.16 are done; **1.2.17 is next**. AAPL's latest
   client sets `max_keepalive_connections=0` itself ("may cause extra delays"),
   elsewhere (e.g. the `qdrant` Service in Kubernetes) httpx's default pool
   keeps connections alive.
+- `query_points` returns a `QueryResponse`; `.points` are `ScoredPoint`s with
+  `.score` (cosine similarity) and `.payload`. A filter applies even when the
+  only match scores 0.
+- 1.2.17 on AAPL FY2025 (45 chunks): "What are Apple's main supply chain
+  risks?" filtered to AAPL returns 5 of 5 from Item 1A; #1 (0.632) holds the
+  "single or limited sources" paragraph, #5 (0.566) a second mention. Query
+  embedding 478 ms, search 51 ms from the laptop.
 - In-memory mode supports `HasIdCondition`, `FilterSelector` deletes and
   `retrieve`, so `upsert_filing` is tested offline.
 - `PayloadSchemaType` values: keyword, integer, float, geo, text, bool,

@@ -18,6 +18,7 @@ from finai.ingestion.store import (
     ensure_collection,
     ensure_payload_indexes,
     qdrant_client,
+    search,
     upsert_filing,
 )
 
@@ -176,6 +177,71 @@ def test_fewer_chunks_on_reingest_removes_the_extras(small: QdrantClient) -> Non
     )
     assert small.count("c", count_filter=by_filing).count == 3
     assert small.count("c").count == 5  # the other filing's 2 points are untouched
+
+
+def _seed_two_companies(client: QdrantClient) -> None:
+    """AAPL FY2025 and FY2024 plus NVDA FY2025, with chunk i's vector pointing
+    at angle i so the nearest chunk is predictable."""
+    for ticker, accession, year in (
+        ("AAPL", "A-25", 2025),
+        ("AAPL", "A-24", 2024),
+        ("NVDA", "N-25", 2025),
+    ):
+        meta = FilingMeta(
+            ticker, accession, "10-K", f"{year}-10-31", f"{year}-09-27", year
+        )
+        sections = {"Item 1A": "Risk one.\n\nRisk two.", "Item 7": "Results one."}
+        payloads = chunk_filing(meta, sections, 8, 0)
+        upsert_filing(client, payloads, _vectors(payloads), name="c")
+
+
+def test_search_is_limited_to_the_ticker(small: QdrantClient) -> None:
+    _seed_two_companies(small)
+
+    hits = search(small, [1.0, 0.0, 0.0, 0.0], "aapl", k=10, name="c")
+
+    assert hits
+    assert {h.chunk.ticker for h in hits} == {"AAPL"}
+    assert all(isinstance(h.chunk, ChunkPayload) for h in hits)
+
+
+def test_search_filters_section_and_year(small: QdrantClient) -> None:
+    _seed_two_companies(small)
+
+    hits = search(
+        small,
+        [1.0, 0.0, 0.0, 0.0],
+        "AAPL",
+        section="Item 1A",
+        fiscal_year=2024,
+        k=10,
+        name="c",
+    )
+
+    assert [(h.chunk.accession, h.chunk.section) for h in hits] == [("A-24", "Item 1A")]
+
+
+def test_search_returns_best_first_and_respects_k(small: QdrantClient) -> None:
+    _seed_two_companies(small)
+
+    hits = search(small, [1.0, 1.0, 0.0, 0.0], "AAPL", k=3, name="c")
+
+    assert len(hits) == 3
+    assert [h.score for h in hits] == sorted((h.score for h in hits), reverse=True)
+
+
+@pytest.mark.qdrant
+@pytest.mark.voyage
+def test_supply_chain_question_finds_apples_risk_factors() -> None:
+    """Task 1.2.17. Needs AAPL ingested into the compose Qdrant."""
+    from finai.ingestion.embed import embed_query
+
+    vector = embed_query("What are Apple's main supply chain risks?")
+    hits = search(qdrant_client(), vector, "AAPL")
+
+    assert len(hits) == 5
+    assert hits[0].chunk.section == "Item 1A"
+    assert any("single or limited sources" in h.chunk.text for h in hits)
 
 
 class _LosingClient:

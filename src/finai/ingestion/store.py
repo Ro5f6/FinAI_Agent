@@ -5,6 +5,7 @@ Verified against qdrant-client 1.19.1 and server v1.19.1 (docs/CONTEXT.md).
 
 from collections.abc import Sequence
 from functools import lru_cache
+from typing import NamedTuple
 
 from qdrant_client import QdrantClient, models
 
@@ -28,6 +29,13 @@ class CollectionMismatchError(RuntimeError):
 
 class IngestCountError(RuntimeError):
     """A filing's point count differs from the number of chunks written."""
+
+
+class SearchHit(NamedTuple):
+    """One retrieved chunk and its cosine similarity to the query."""
+
+    score: float
+    chunk: ChunkPayload
 
 
 # Points per upsert request. Each point carries a 1024-float vector and up to
@@ -162,3 +170,48 @@ def upsert_filing(
             f"{len(points)} chunks written"
         )
     return removed
+
+
+def search(
+    client: QdrantClient,
+    vector: Sequence[float],
+    ticker: str,
+    section: str | None = None,
+    fiscal_year: int | None = None,
+    k: int = 5,
+    name: str | None = None,
+) -> list[SearchHit]:
+    """Return the ``k`` chunks most similar to ``vector`` for one company.
+
+    ``ticker`` is required: every 10-K search is about one company, and an
+    unfiltered search would rank other companies' risk factors alongside its
+    own. ``section`` and ``fiscal_year`` narrow it further, using the payload
+    indexes from ``ensure_payload_indexes``. ``QdrantClient.search`` no longer
+    exists in qdrant-client 1.19; this uses ``query_points``.
+    """
+    must = [
+        models.FieldCondition(
+            key="ticker", match=models.MatchValue(value=ticker.upper())
+        )
+    ]
+    if section is not None:
+        must.append(
+            models.FieldCondition(key="section", match=models.MatchValue(value=section))
+        )
+    if fiscal_year is not None:
+        must.append(
+            models.FieldCondition(
+                key="fiscal_year", match=models.MatchValue(value=fiscal_year)
+            )
+        )
+    response = client.query_points(
+        collection_name=name or settings.COLLECTION_NAME,
+        query=list(vector),
+        query_filter=models.Filter(must=must),
+        limit=k,
+        with_payload=True,
+    )
+    return [
+        SearchHit(point.score, ChunkPayload(**point.payload))
+        for point in response.points
+    ]
