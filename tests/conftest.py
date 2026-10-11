@@ -24,6 +24,9 @@ _PLACEHOLDERS = {
     "VOYAGE_API_KEY": "pa-collection-only",
     "FINNHUB_API_KEY": "finnhub-collection-only",
 }
+# Tests never send LangSmith traces, whatever the shell or .env says.
+os.environ["LANGSMITH_TRACING"] = "false"
+
 _local_env = dotenv_values(".env")
 for _name, _placeholder in _PLACEHOLDERS.items():
     if not os.environ.get(_name) and not _local_env.get(_name):

@@ -13,7 +13,7 @@ gitignored and kept local for now).
 
 Steps 1.1 and 1.2 complete (1.2 Done when: the supply-chain query returns
 Item 1A chunks; re-ingesting 9 filings left 487 points, 0 stale). In step
-1.3, tasks 1.3.1-1.3.3 are done; **1.3.4 is next**.
+1.3, tasks 1.3.1-1.3.4 are done; **1.3.5 is next**.
 
 Ingest with `python -m finai.ingestion.ingest --ticker AAPL NVDA MSFT
 --years 3` (needs `docker compose up -d`). The local `sec_filings` holds
@@ -150,6 +150,22 @@ those 9 filings (FY2023-2026), 487 points.
 - A shell that has sourced `.env` exports `EMBEDDING_MODEL`, which overrides
   `.env` and the `Settings` default. After the switch, the terminal running
   this session still had `BAAI/bge-small-en-v1.5` and the API rejected it.
+
+## Verified LangChain tools (langchain-core 1.6.9)
+
+- `@tool(parse_docstring=True)` moves Google-style `Args:` descriptions into
+  the argument schema and keeps the summary as the description. It raises
+  "Found invalid Google-Style docstring" for a function whose only parameter
+  is an injected one and whose docstring has no `Args:`; use plain `@tool`.
+- A parameter typed `RunnableConfig` is injected and left out of
+  `tool_call_schema`. Arguments the model sends that aren't in the schema
+  (`user_id`, `config`) are dropped: invoking with `{"user_id": ...}` under
+  another user's config returns that user's data.
+- A `Literal` argument becomes an enum in the schema; a value outside it
+  fails validation before the function runs.
+- The shell exports `LANGSMITH_TRACING=true` with a key LangSmith rejects
+  (403 on every traced call). `tests/conftest.py` forces tracing off; set it
+  false in `.env` until tracing is set up in 1.4.
 
 ## Verified Finnhub behaviour (free key, 2026-10-11)
 
