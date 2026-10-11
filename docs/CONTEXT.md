@@ -13,8 +13,8 @@ gitignored and kept local for now).
 
 Steps 1.1 and 1.2 complete (1.2 Done when: the supply-chain query returns
 Item 1A chunks; re-ingesting 9 filings left 487 points, 0 stale). In step
-1.3, tasks 1.3.1-1.3.5 are done (all tools built and wrapped); **1.3.6 is
-next**.
+1.3, tasks 1.3.1-1.3.6 are done (tools built and wrapped, state defined);
+**1.3.7 is next**.
 
 Ingest with `python -m finai.ingestion.ingest --ticker AAPL NVDA MSFT
 --years 3` (needs `docker compose up -d`). The local `sec_filings` holds
@@ -151,6 +151,18 @@ those 9 filings (FY2023-2026), 487 points.
 - A shell that has sourced `.env` exports `EMBEDDING_MODEL`, which overrides
   `.env` and the `Settings` default. After the switch, the terminal running
   this session still had `BAAI/bge-small-en-v1.5` and the API rejected it.
+
+## Verified LangGraph (langgraph 1.2.14)
+
+- A state field without a reducer is **replaced** by each step's return; with
+  `operator.add` it accumulates; `add_messages` appends and assigns IDs.
+- With a checkpointer the state persists per `thread_id`, so `loop_count`
+  must be reset by each new question's input or it carries over.
+- `InMemorySaver` is at `langgraph.checkpoint.memory`. Imports used:
+  `StateGraph, START, END` from `langgraph.graph`, `add_messages` from
+  `langgraph.graph.message`.
+- The shell may still export `LANGSMITH_TRACING=true` after `.env` is changed;
+  exported variables win, so a new terminal is needed to pick up `.env`.
 
 ## Verified LangChain tools (langchain-core 1.6.9)
 
