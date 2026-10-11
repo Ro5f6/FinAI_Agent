@@ -167,6 +167,15 @@ is done; **1.3.2 is next**. Ingest with
   despite USD reporting, BRK.B the class A prices. Kept only if the currency
   is USD (or absent, for ETFs) and the price is within the range ±5%.
 - P/E is None for loss-makers (RIVN) and ETFs.
+- `peTTM` is at an older price than `/quote` (NVDA 28.6483 = 7.9108 x ~226.6,
+  quote 229.28), so the tool recomputes price / `epsTTM` (and `epsAnnual`).
+  `epsTTM` is the sum of the last four `series.quarterly.eps` values (NVDA
+  2.46+2.39+1.76+1.30 = 7.91). price / EPS against `peTTM`: US common stocks
+  1.00-1.03, GME 1.17 (price move), ASML 1.10 (EUR EPS: the exchange rate),
+  SHEL 2.01 (ADR = 2 shares), TSM 0.18, TM 0.07, BRK.B 0.00 (class A EPS).
+  Recomputed only for USD reporters within 1.33x; otherwise Finnhub's P/E is
+  returned as company-level and EPS is withheld. `peExclExtraAnnual` (NVDA
+  274.2) is inconsistent with every other field; unused.
 - **`/stock/candle` returns 403 on the free key**: price history is paid-only,
   so Alpaca stays (D-013, 1.3.24).
 - A quote takes ~200-360 ms (three calls); cached it takes 0.01 ms.

@@ -18,67 +18,120 @@ from finai.tools.market_data import (
 
 _ZERO_QUOTE = {"c": 0, "d": None, "dp": None, "h": 0, "l": 0, "o": 0, "pc": 0, "t": 0}
 
+
 # Recorded responses, trimmed to the fields the tool reads.
+def _metric(
+    eps_ttm=None,
+    eps_annual=None,
+    pe_ttm=None,
+    pe_annual=None,
+    quarter=None,
+    fiscal_year_end=None,
+    high=None,
+    low=None,
+) -> dict:
+    series = {}
+    if quarter:
+        series["quarterly"] = {"eps": [{"period": quarter, "v": 0.0}]}
+    if fiscal_year_end:
+        series["annual"] = {"eps": [{"period": fiscal_year_end, "v": 0.0}]}
+    return {
+        "metric": {
+            "epsTTM": eps_ttm,
+            "epsAnnual": eps_annual,
+            "peTTM": pe_ttm,
+            "peAnnual": pe_annual,
+            "52WeekHigh": high,
+            "52WeekLow": low,
+        },
+        "series": series,
+    }
+
+
+def _profile(name, currency, cap_millions) -> dict:
+    return {"name": name, "currency": currency, "marketCapitalization": cap_millions}
+
+
+def _quote(price, change_pct=0.0) -> dict:
+    return {"c": price, "dp": change_pct, "t": 1791576000}
+
+
 _RESPONSES = {
     "AAPL": {
         "/quote": {"c": 336.64, "d": -3.78, "dp": -1.1104, "t": 1791576000},
-        "/stock/profile2": {
-            "name": "Apple Inc",
-            "currency": "USD",
-            "marketCapitalization": 4912984.843791244,
-        },
-        "/stock/metric": {
-            "metric": {"52WeekHigh": 345.34, "52WeekLow": 243.42, "peTTM": 38.1058}
-        },
+        "/stock/profile2": _profile("Apple Inc", "USD", 4912984.843791244),
+        "/stock/metric": _metric(
+            8.7233, 7.465, 38.1058, 43.862, "2026-06-27", "2025-09-27", 345.34, 243.42
+        ),
     },
+    # Finnhub's peTTM (28.6483) is at an older price than the quote.
+    "NVDA": {
+        "/quote": _quote(229.28, -0.5207),
+        "/stock/profile2": _profile("NVIDIA Corp", "USD", 5525647.897570095),
+        "/stock/metric": _metric(
+            7.9108, 4.8979, 28.6483, 46.0214, "2026-07-26", "2026-01-25", 243.37, 164.27
+        ),
+    },
+    # A 17% price move since Finnhub's P/E: still the same share.
+    "GME": {
+        "/quote": _quote(26.56),
+        "/stock/profile2": _profile("GameStop Corp", "USD", 11870.0),
+        "/stock/metric": _metric(
+            1.508, 0.762, 15.0001, 32.0257, "2026-08-01", "2026-01-31"
+        ),
+    },
+    # TWD EPS per Taiwan share; range from the Taiwan listing.
     "TSM": {
-        "/quote": {"c": 453.31, "dp": -1.0219, "t": 1791576000},
-        "/stock/profile2": {
-            "name": "Taiwan Semiconductor Manufacturing Co Ltd",
-            "currency": "TWD",
-            "marketCapitalization": 66127541.308594,
-        },
-        "/stock/metric": {
-            "metric": {"52WeekHigh": 2590, "52WeekLow": 1375, "peTTM": 29.1831}
-        },
+        "/quote": _quote(453.31, -1.0219),
+        "/stock/profile2": _profile(
+            "Taiwan Semiconductor Manufacturing Co Ltd", "TWD", 66127541.308594
+        ),
+        "/stock/metric": _metric(
+            87.3818, 66.2494, 29.1831, 38.4936, "2026-06-30", "2025-12-31", 2590, 1375
+        ),
+    },
+    # USD reporting, but EPS per ordinary share (2 per US share), range in pence.
+    "SHEL": {
+        "/quote": _quote(100.18, 0.3),
+        "/stock/profile2": _profile("Shell PLC", "USD", 210000.0),
+        "/stock/metric": _metric(
+            4.5318, 2.9985, 10.981, 15.9879, "2026-06-30", "2025-12-31", 3806.5, 2554
+        ),
+    },
+    # USD, but EPS per class A share.
+    "BRK.B": {
+        "/quote": _quote(515.62),
+        "/stock/profile2": _profile("Berkshire Hathaway Inc", "USD", 993421.589458947),
+        "/stock/metric": _metric(
+            59668.8094,
+            46570.2364,
+            11.5827,
+            14.8343,
+            "2026-06-30",
+            "2025-12-31",
+            806102.8,
+            698000,
+        ),
+    },
+    # EUR EPS: price / EPS lands at 1.10x Finnhub's, inside the agreement band.
+    "ASML": {
+        "/quote": _quote(1780.34, 1.0),
+        "/stock/profile2": _profile("ASML Holding NV", "EUR", 622864.558503),
+        "/stock/metric": _metric(
+            26.9644, 26.2612, 59.7902, 60.9874, "2026-06-28", "2025-12-31", 1741, 822.2
+        ),
     },
     "SPY": {
-        "/quote": {"c": 778.57, "dp": 0.5995, "t": 1791576000},
+        "/quote": _quote(778.57, 0.5995),
         "/stock/profile2": {},
-        "/stock/metric": {"metric": {"52WeekHigh": 781.62, "52WeekLow": 629.28}},
+        "/stock/metric": _metric(high=781.62, low=629.28),
     },
     "RIVN": {
-        "/quote": {"c": 13.96, "dp": -2.582, "t": 1791576000},
-        "/stock/profile2": {
-            "name": "Rivian Automotive Inc",
-            "currency": "USD",
-            "marketCapitalization": 20212.13414940405,
-        },
-        "/stock/metric": {"metric": {"52WeekHigh": 22.69, "peTTM": None}},
-    },
-    # SHEL reports in USD, but its range is London's, in pence.
-    "SHEL": {
-        "/quote": {"c": 100.18, "dp": 0.3, "t": 1791576000},
-        "/stock/profile2": {
-            "name": "Shell PLC",
-            "currency": "USD",
-            "marketCapitalization": 210000.0,
-        },
-        "/stock/metric": {
-            "metric": {"52WeekHigh": 3806.5, "52WeekLow": 2554, "peTTM": 12.1}
-        },
-    },
-    # ASML's EUR range sits near its USD price by coincidence.
-    "ASML": {
-        "/quote": {"c": 1780.34, "dp": 1.0, "t": 1791576000},
-        "/stock/profile2": {
-            "name": "ASML Holding NV",
-            "currency": "EUR",
-            "marketCapitalization": 622864.558503,
-        },
-        "/stock/metric": {
-            "metric": {"52WeekHigh": 1741, "52WeekLow": 822.2, "peTTM": 59.79}
-        },
+        "/quote": _quote(13.96, -2.582),
+        "/stock/profile2": _profile("Rivian Automotive Inc", "USD", 20212.13414940405),
+        "/stock/metric": _metric(
+            -2.5821, -3.0742, None, None, "2026-06-30", "2025-12-31", 22.69, 12.39
+        ),
     },
     "ZZZZ": {"/quote": _ZERO_QUOTE, "/stock/profile2": {}, "/stock/metric": {}},
 }
@@ -127,7 +180,7 @@ def test_quote_maps_every_field(finnhub: _Finnhub) -> None:
     assert data.change_pct == -1.1104
     assert data.week_52_high == 345.34
     assert data.week_52_low == 243.42
-    assert data.pe_ttm == 38.1058
+    assert data.pe_ttm == pytest.approx(336.64 / 8.7233)
     assert data.quote_time == dt.datetime(2026, 10, 9, 20, 0, tzinfo=dt.UTC)
     assert data.source == "Finnhub"
 
@@ -163,7 +216,7 @@ def test_52_week_range_of_another_listing_is_dropped(
 
     assert data.week_52_low is None, why
     assert data.week_52_high is None, why
-    assert data.pe_ttm is not None  # a ratio, valid on any listing
+    assert data.pe_ttm is not None  # company level, from the home listing
 
 
 def test_etf_keeps_its_52_week_range(finnhub: _Finnhub) -> None:
@@ -189,9 +242,60 @@ def test_etf_has_no_name_or_market_cap(finnhub: _Finnhub) -> None:
     assert data.week_52_high == 781.62
 
 
-def test_missing_pe_stays_none(finnhub: _Finnhub) -> None:
-    """A loss-maker has no P/E; it must not become 0."""
-    assert get_live_market_data("RIVN").pe_ttm is None
+def test_pe_is_recomputed_from_the_quote(finnhub: _Finnhub) -> None:
+    """Finnhub's 28.65 is at an older price; 229.28 / 7.9108 = 28.98."""
+    data = get_live_market_data("NVDA")
+
+    assert data.pe_source == market_data.PE_FROM_QUOTE
+    assert data.pe_ttm == pytest.approx(229.28 / 7.9108)
+    assert data.pe_annual == pytest.approx(229.28 / 4.8979)
+    assert data.eps_ttm == 7.9108
+    assert data.eps_ttm_period_end == dt.date(2026, 7, 26)
+    assert data.eps_annual_period_end == dt.date(2026, 1, 25)
+
+
+def test_price_move_still_counts_as_the_same_share(finnhub: _Finnhub) -> None:
+    data = get_live_market_data("GME")
+
+    assert data.pe_source == market_data.PE_FROM_QUOTE
+    assert data.pe_ttm == pytest.approx(26.56 / 1.508)
+
+
+@pytest.mark.parametrize(
+    ("ticker", "why"),
+    [
+        ("TSM", "EPS in TWD per Taiwan share"),
+        ("SHEL", "USD, but EPS per ordinary share, two per US share"),
+        ("BRK.B", "USD, but EPS per class A share"),
+        ("ASML", "EUR EPS; price / EPS is 1.10x, inside the agreement band"),
+    ],
+)
+def test_other_share_or_currency_falls_back_to_company_level(
+    finnhub: _Finnhub, ticker: str, why: str
+) -> None:
+    data = get_live_market_data(ticker)
+    finnhub_pe = _RESPONSES[ticker]["/stock/metric"]["metric"]["peTTM"]
+
+    assert data.pe_source == market_data.PE_COMPANY_LEVEL, why
+    assert data.pe_ttm == finnhub_pe
+    assert data.eps_ttm is None, why  # not per this ticker's share
+    assert data.eps_annual is None
+
+
+def test_loss_maker_shows_eps_but_no_pe(finnhub: _Finnhub) -> None:
+    """A P/E must not become 0; the negative EPS says why there is none."""
+    data = get_live_market_data("RIVN")
+
+    assert data.pe_ttm is None
+    assert data.pe_annual is None
+    assert data.pe_source is None
+    assert data.eps_ttm == -2.5821
+
+
+def test_etf_has_no_valuation(finnhub: _Finnhub) -> None:
+    data = get_live_market_data("SPY")
+
+    assert (data.pe_ttm, data.eps_ttm, data.pe_source) == (None, None, None)
 
 
 def test_zero_quote_means_not_found_and_stops_early(finnhub: _Finnhub) -> None:
@@ -254,6 +358,11 @@ def test_live_quotes() -> None:
     market_data._client.cache_clear()
     market_data._cache.clear()
 
+    nvda = get_live_market_data("NVDA")
+    assert nvda.pe_source == market_data.PE_FROM_QUOTE
+    assert nvda.pe_ttm == pytest.approx(nvda.price / nvda.eps_ttm)
+    assert nvda.eps_ttm_period_end is not None
+
     aapl = get_live_market_data("AAPL")
     assert aapl.price > 0
     assert aapl.market_cap > 1e12  # trillions, so the millions were converted
@@ -263,5 +372,6 @@ def test_live_quotes() -> None:
     tsm = get_live_market_data("TSM")
     assert tsm.market_cap_currency == "TWD"
     assert tsm.week_52_high is None  # Finnhub's is the Taiwan listing's, in TWD
+    assert tsm.pe_source == market_data.PE_COMPANY_LEVEL
     with pytest.raises(TickerNotFoundError):
         get_live_market_data("ZZZZ")
