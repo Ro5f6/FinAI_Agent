@@ -1,5 +1,14 @@
 """Graph nodes.
 
+The tool node is LangGraph's ``ToolNode`` plus one step. Verified against
+langgraph-prebuilt 1.1.0 (docs/CONTEXT.md), ``ToolNode`` already runs a
+reply's tool calls concurrently, serialises dict results to JSON, injects the
+run's config (the portfolio tool's user), returns invalid arguments and
+unknown tool names to the model as error messages so it can correct itself,
+and raises on any other exception so a bug isn't turned into model input. The
+added step copies the passages of each successful 10-K search into
+``retrieved_docs`` for the verifier (1.5) and the evals (6.2).
+
 The planner reads the conversation and either answers or asks for tools. The
 system prompt is prepended on every call rather than kept in the state: the
 state is checkpointed per thread (1.3.14), so a stored prompt would be saved
@@ -12,15 +21,19 @@ the next call of the same tool loop; ``ChatAnthropic`` does that when the
 ``AIMessage`` is passed back (verified offline, docs/CONTEXT.md).
 """
 
-from collections.abc import Callable
+import json
+from collections.abc import Callable, Sequence
 from typing import Any
 
 from langchain_core.language_models import LanguageModelInput
-from langchain_core.messages import BaseMessage, SystemMessage
+from langchain_core.messages import BaseMessage, SystemMessage, ToolMessage
 from langchain_core.runnables import Runnable, RunnableConfig
+from langchain_core.tools import BaseTool
+from langgraph.prebuilt import ToolNode
 
 from finai.agent.prompts import SYSTEM_PROMPT
 from finai.agent.state import AgentState
+from finai.tools.agent_tools import TOOLS
 
 Planner = Runnable[LanguageModelInput, BaseMessage]
 
@@ -39,3 +52,26 @@ def make_planner_node(
         return {"messages": [reply], "loop_count": state["loop_count"] + 1}
 
     return planner
+
+
+def _passages(message: ToolMessage) -> list[dict[str, Any]]:
+    """The passages in a successful ``query_company_10k`` result, else []."""
+    if message.name != "query_company_10k" or message.status != "success":
+        return []
+    return json.loads(message.content).get("passages", [])
+
+
+def make_tool_node(
+    tools: Sequence[BaseTool] = TOOLS,
+) -> Callable[[AgentState, RunnableConfig], dict[str, Any]]:
+    """The tool node: run the requested tools, keep the 10-K passages."""
+    tool_node = ToolNode(tools)
+
+    def run_tools(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
+        results = tool_node.invoke(state, config)["messages"]
+        return {
+            "messages": results,
+            "retrieved_docs": [p for m in results for p in _passages(m)],
+        }
+
+    return run_tools

@@ -13,8 +13,8 @@ gitignored and kept local for now).
 
 Steps 1.1 and 1.2 complete (1.2 Done when: the supply-chain query returns
 Item 1A chunks; re-ingesting 9 filings left 487 points, 0 stale). In step
-1.3, tasks 1.3.1-1.3.9 are done (tools, state, planner model, system
-prompt, planner node); **1.3.10 is next**. 1.3.7's live call (`-m anthropic`) waits for Anthropic credits. Added outside the original order: 1.2.21, reranking.
+1.3, tasks 1.3.1-1.3.10 are done (tools, state, planner model, system
+prompt, planner and tool nodes); **1.3.11 is next**. 1.3.7's live call (`-m anthropic`) waits for Anthropic credits. Added outside the original order: 1.2.21, reranking.
 
 Ingest with `python -m finai.ingestion.ingest --ticker AAPL NVDA MSFT
 --years 3` (needs `docker compose up -d`). The local `sec_filings` holds
@@ -187,6 +187,14 @@ those 9 filings (FY2023-2026), 487 points.
   `operator.add` it accumulates; `add_messages` appends and assigns IDs.
 - With a checkpointer the state persists per `thread_id`, so `loop_count`
   must be reset by each new question's input or it carries over.
+- `ToolNode` (langgraph-prebuilt 1.1.0) only runs inside a graph (outside:
+  "Missing required config key"). It runs one reply's tool calls in a thread
+  pool (3 x 0.5 s calls: 0.51 s), JSON-serialises dict results into the
+  `ToolMessage` content and sets `name` to the tool's name, injects the run's
+  config, and by default returns invalid arguments and unknown tool names as
+  `status="error"` messages but re-raises any other exception.
+- One real step (10-K search + quote + portfolio): 1.38 s; a 5-passage 10-K
+  result is ~27K characters of tool output for the next model call.
 - `InMemorySaver` is at `langgraph.checkpoint.memory`. Imports used:
   `StateGraph, START, END` from `langgraph.graph`, `add_messages` from
   `langgraph.graph.message`.

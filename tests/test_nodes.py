@@ -114,3 +114,172 @@ def test_planner_works_with_the_real_tool_bound_model_offline() -> None:
     assert payload["system"] == SYSTEM_PROMPT
     assert [m["role"] for m in payload["messages"]] == ["user"]
     assert len(payload["tools"]) == 3
+
+
+# --- tool node (1.3.10) -------------------------------------------------------
+
+import json
+
+import pytest
+from langgraph.graph import END, START, StateGraph
+
+from finai.agent.nodes import make_tool_node
+from finai.agent.state import AgentState
+from finai.tools import filings, market_data
+from finai.tools.filings import TenKPassage, TenKSearchResult
+
+
+def _passage(ticker: str, year: int, index: int) -> TenKPassage:
+    return TenKPassage(
+        text=f"{ticker} passage {index}",
+        ticker=ticker,
+        form="10-K",
+        fiscal_year=year,
+        filing_date=f"{year}-10-31",
+        section="Item 1A",
+        accession=f"{ticker}-{year}",
+        chunk_index=index,
+        score=0.6,
+        relevance=0.8,
+    )
+
+
+@pytest.fixture
+def stub_search(monkeypatch: pytest.MonkeyPatch) -> None:
+    """query_company_10k returns two passages per indexed ticker; TSLA isn't indexed."""
+
+    def fake(ticker, question, section, fiscal_year, k):
+        if ticker == "TSLA":
+            return TenKSearchResult(
+                status="not_indexed",
+                ticker="TSLA",
+                fiscal_year=None,
+                section=section,
+                available_years=[],
+            )
+        year = fiscal_year or 2025
+        return TenKSearchResult(
+            status="ok",
+            ticker=ticker,
+            fiscal_year=year,
+            section=section,
+            available_years=[2025, 2024],
+            passages=[_passage(ticker, year, 0), _passage(ticker, year, 1)],
+        )
+
+    monkeypatch.setattr(filings, "query_company_10k", fake)
+
+
+def _run_tools(calls: list[tuple[str, dict]], config: dict | None = None) -> dict:
+    graph = StateGraph(AgentState)
+    graph.add_node("tools", make_tool_node())
+    graph.add_edge(START, "tools")
+    graph.add_edge("tools", END)
+    request = AIMessage(
+        content="",
+        tool_calls=[
+            {"id": f"call{i}", "name": n, "args": a} for i, (n, a) in enumerate(calls)
+        ],
+    )
+    state = {**_state(), "messages": [HumanMessage("q"), request]}
+    return graph.compile().invoke(
+        state, config or {"configurable": {"user_id": "demo"}}
+    )
+
+
+def test_10k_passages_are_kept_for_the_verifier(stub_search) -> None:
+    out = _run_tools(
+        [("query_company_10k", {"ticker": "AAPL", "question": "supply risks"})]
+    )
+
+    assert [(d["ticker"], d["chunk_index"]) for d in out["retrieved_docs"]] == [
+        ("AAPL", 0),
+        ("AAPL", 1),
+    ]
+    assert out["retrieved_docs"][0]["section"] == "Item 1A"
+
+
+def test_each_call_gets_its_result_message(stub_search) -> None:
+    out = _run_tools(
+        [
+            ("query_company_10k", {"ticker": "AAPL", "question": "risks"}),
+            ("get_user_portfolio", {}),
+        ]
+    )
+    results = [m for m in out["messages"] if isinstance(m, ToolMessage)]
+
+    assert [m.tool_call_id for m in results] == ["call0", "call1"]
+    assert [m.name for m in results] == ["query_company_10k", "get_user_portfolio"]
+    assert json.loads(results[1].content)["holdings"][0]["ticker"] == "AAPL"
+
+
+def test_parallel_searches_keep_every_passage(stub_search) -> None:
+    out = _run_tools(
+        [
+            ("query_company_10k", {"ticker": "AAPL", "question": "risks"}),
+            (
+                "query_company_10k",
+                {"ticker": "MSFT", "question": "risks", "fiscal_year": 2024},
+            ),
+        ]
+    )
+
+    keys = {(d["ticker"], d["fiscal_year"]) for d in out["retrieved_docs"]}
+    assert keys == {("AAPL", 2025), ("MSFT", 2024)}
+    assert len(out["retrieved_docs"]) == 4
+
+
+def test_other_tools_add_no_documents(
+    stub_search, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        market_data,
+        "get_live_market_data",
+        lambda t: (_ for _ in ()).throw(market_data.TickerNotFoundError("no quote")),
+    )
+
+    out = _run_tools(
+        [("get_live_market_data", {"ticker": "ZZZZ"}), ("get_user_portfolio", {})]
+    )
+
+    assert out["retrieved_docs"] == []
+
+
+def test_unindexed_company_adds_nothing(stub_search) -> None:
+    out = _run_tools([("query_company_10k", {"ticker": "TSLA", "question": "risks"})])
+
+    assert out["retrieved_docs"] == []
+    assert json.loads(out["messages"][-1].content)["status"] == "not_indexed"
+
+
+def test_bad_arguments_go_back_to_the_model_as_an_error(stub_search) -> None:
+    """An invalid section is the model's mistake: tell it, don't crash."""
+    out = _run_tools(
+        [
+            (
+                "query_company_10k",
+                {"ticker": "AAPL", "question": "q", "section": "Risk Factors"},
+            )
+        ]
+    )
+    result = out["messages"][-1]
+
+    assert result.status == "error"
+    assert "section" in result.content
+    assert out["retrieved_docs"] == []
+
+
+def test_unknown_tool_goes_back_to_the_model() -> None:
+    out = _run_tools([("get_stock_tips", {})])
+    result = out["messages"][-1]
+
+    assert result.status == "error"
+    assert "query_company_10k" in result.content  # lists the valid tools
+
+
+def test_a_bug_in_a_tool_is_not_hidden(stub_search) -> None:
+    """A missing user is a server bug; it must not become a model message."""
+    from finai.tools.agent_tools import MissingUserError
+
+    with pytest.raises(MissingUserError):
+        _run_tools([("get_user_portfolio", {})], {"configurable": {}})
