@@ -13,8 +13,8 @@ gitignored and kept local for now).
 
 Steps 1.1 and 1.2 complete (1.2 Done when: the supply-chain query returns
 Item 1A chunks; re-ingesting 9 filings left 487 points, 0 stale). In step
-1.3, tasks 1.3.1-1.3.8 are done (tools, state, planner model, system
-prompt); **1.3.9 is next**. 1.3.7's live call (`-m anthropic`) waits for Anthropic credits. Added outside the original order: 1.2.21, reranking.
+1.3, tasks 1.3.1-1.3.9 are done (tools, state, planner model, system
+prompt, planner node); **1.3.10 is next**. 1.3.7's live call (`-m anthropic`) waits for Anthropic credits. Added outside the original order: 1.2.21, reranking.
 
 Ingest with `python -m finai.ingestion.ingest --ticker AAPL NVDA MSFT
 --years 3` (needs `docker compose up -d`). The local `sec_filings` holds
@@ -169,6 +169,10 @@ those 9 filings (FY2023-2026), 487 points.
   it targets the beta endpoint; `model_kwargs` keys go top-level
   (`fallbacks: "default"`). `temperature` defaults to unset and isn't sent.
   `bind_tools` returns a `_ChatModelBinding` with `.bound` and `.kwargs`.
+- Round trip, checked offline: an `AIMessage` whose content is
+  `[thinking (with signature), tool_use]` followed by a `ToolMessage` becomes
+  an assistant message with both blocks unchanged and a user `tool_result`
+  with the same id; a `SystemMessage` becomes the top-level `system` field.
 - Model facts (Claude API reference, cached 2026-10-06): Sonnet 5.5 $2/$10
   per MTok, default effort `high`; Haiku 5.5 $0.10/$0.50, default `medium`;
   Opus 5.5 $4/$20, default `medium`. On the 5.x models `temperature` is
