@@ -8,6 +8,7 @@ Field names are uppercase so they map one-to-one onto the variable names in
 """
 
 from pathlib import Path
+from typing import Literal
 
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -30,8 +31,27 @@ class Settings(BaseSettings):
         description="Anthropic API key. Required; fail fast rather than 401 at request time.",
     )
     LLM_MODEL: str = Field(
-        default="claude-sonnet-5",
-        description="Planner model. Exact model ID, no date suffix.",
+        default="claude-sonnet-5-5",
+        description=(
+            "Planner model. Exact model ID, no date suffix. claude-haiku-5-5 is 20x "
+            "cheaper for development; evaluate with the model you deploy."
+        ),
+    )
+    LLM_EFFORT: Literal["low", "medium", "high", "xhigh", "max"] = Field(
+        default="medium",
+        description=(
+            "Planner reasoning effort. Set explicitly: defaults differ by model "
+            "(Sonnet 5.5 high, Opus 5.5 and Haiku 5.5 medium)."
+        ),
+    )
+    LLM_MAX_TOKENS: int = Field(
+        default=16_000,
+        ge=1,
+        description="Output cap per planner response; ~16K keeps non-streaming calls under SDK timeouts.",
+    )
+    LLM_REFUSAL_FALLBACK: bool = Field(
+        default=True,
+        description="Re-run a safety-declined request on a fallback model (server-side, Claude API only).",
     )
 
     # --- Vector store ---

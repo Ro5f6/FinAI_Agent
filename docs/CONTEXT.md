@@ -13,8 +13,8 @@ gitignored and kept local for now).
 
 Steps 1.1 and 1.2 complete (1.2 Done when: the supply-chain query returns
 Item 1A chunks; re-ingesting 9 filings left 487 points, 0 stale). In step
-1.3, tasks 1.3.1-1.3.6 are done (tools built and wrapped, state defined);
-**1.3.7 is next**. Added outside the original order: 1.2.21, reranking.
+1.3, tasks 1.3.1-1.3.7 are done (tools, state, planner model); **1.3.8 is
+next**. 1.3.7's live call (`-m anthropic`) waits for Anthropic credits. Added outside the original order: 1.2.21, reranking.
 
 Ingest with `python -m finai.ingestion.ingest --ticker AAPL NVDA MSFT
 --years 3` (needs `docker compose up -d`). The local `sec_filings` holds
@@ -160,6 +160,22 @@ those 9 filings (FY2023-2026), 487 points.
 - A shell that has sourced `.env` exports `EMBEDDING_MODEL`, which overrides
   `.env` and the `Settings` default. After the switch, the terminal running
   this session still had `BAAI/bge-small-en-v1.5` and the API rejected it.
+
+## Verified planner model (langchain-anthropic 1.7.5, anthropic 1.13.0)
+
+- `ChatAnthropic(model=, api_key=, max_tokens=, output_config={"effort": ...},
+  betas=[...], model_kwargs={...})`. `ChatAnthropic._get_request_payload(
+  messages, **bound.kwargs)` builds the exact request offline: with betas set
+  it targets the beta endpoint; `model_kwargs` keys go top-level
+  (`fallbacks: "default"`). `temperature` defaults to unset and isn't sent.
+  `bind_tools` returns a `_ChatModelBinding` with `.bound` and `.kwargs`.
+- Model facts (Claude API reference, cached 2026-10-06): Sonnet 5.5 $2/$10
+  per MTok, default effort `high`; Haiku 5.5 $0.10/$0.50, default `medium`;
+  Opus 5.5 $4/$20, default `medium`. On the 5.x models `temperature` is
+  rejected (non-default values on 5.5) and forced `tool_choice` any/tool
+  returns 400 on the 5.5 models. Server-side refusal fallback:
+  `fallbacks: "default"` + beta `server-side-fallback-2026-07-01`, Claude API
+  only.
 
 ## Verified LangGraph (langgraph 1.2.14)
 

@@ -31,7 +31,7 @@ The full build plan is in `PLAN.md`. Task IDs look like `1.2.7`.
 
 ## Cost rules
 
-- Never schedule nightly eval runs. Use Haiku as the eval judge.
+- Never schedule nightly eval runs. The eval judge comes from a different model family than the agent, to avoid self-preference bias: Gemini on its free tier while the agent runs on Claude.
 - Never leave AWS resources running after a session; follow the teardown steps in `PLAN.md` (4.2.16–4.2.22).
 
 ## Commands

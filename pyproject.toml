@@ -7,6 +7,7 @@ requires-python = ">=3.13,<3.14"
 dependencies = [
     "edgartools>=5.60.0",
     "httpx>=0.28.1",
+    "langchain-anthropic>=1.7.5",
     "langchain-core>=1.6.9",
     "langchain-text-splitters>=1.1.3",
     "langgraph>=1.2.14",
@@ -36,11 +37,12 @@ testpaths = ["tests"]
 # depend on the network, and EDGAR rate-limits. Run them with `-m network`.
 # Tests that need the docker compose Qdrant run with `-m qdrant`; tests that
 # call the Voyage API (and spend tokens) with `-m voyage`; Finnhub with
-# `-m finnhub`.
-addopts = "-m 'not network and not qdrant and not voyage and not finnhub'"
+# `-m finnhub`; Claude with `-m anthropic` (spends credits).
+addopts = "-m 'not network and not qdrant and not voyage and not finnhub and not anthropic'"
 markers = [
     "network: hits the live SEC EDGAR API",
     "qdrant: needs the Qdrant from docker compose",
     "voyage: calls the Voyage AI API",
     "finnhub: calls the Finnhub API",
+    "anthropic: calls the Claude API (spends credits)",
 ]

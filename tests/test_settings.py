@@ -56,7 +56,9 @@ def test_applies_defaults_when_unset(clean_env: pytest.MonkeyPatch) -> None:
     assert settings.CHUNK_TOKENS == 1_000
     assert settings.CHUNK_OVERLAP_TOKENS < settings.CHUNK_TOKENS
     assert settings.CHUNK_TOKENS < settings.EMBEDDING_MAX_TOKENS
-    assert settings.LLM_MODEL == "claude-sonnet-5"
+    assert settings.LLM_MODEL == "claude-sonnet-5-5"
+    assert settings.LLM_EFFORT == "medium"
+    assert settings.LLM_REFUSAL_FALLBACK is True
     assert settings.MAX_AGENT_LOOPS == 6
     assert settings.LANGSMITH_TRACING is False
     assert settings.LANGSMITH_API_KEY is None

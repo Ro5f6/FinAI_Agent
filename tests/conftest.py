@@ -39,7 +39,7 @@ import socket
 
 import pytest
 
-LIVE_MARKERS = {"network", "voyage", "qdrant", "finnhub"}
+LIVE_MARKERS = {"network", "voyage", "qdrant", "finnhub", "anthropic"}
 
 
 class NetworkBlockedError(RuntimeError):
