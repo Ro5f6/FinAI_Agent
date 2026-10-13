@@ -115,6 +115,14 @@ class Settings(BaseSettings):
         default="redis://localhost:6379",
         description="Redis URL for the LangGraph checkpointer. Needs JSON and Search, which are in Redis 8 core.",
     )
+    CHECKPOINT_TTL_MINUTES: int = Field(
+        default=30 * 24 * 60,
+        ge=1,
+        description=(
+            "Saved conversations expire this many MINUTES after last use (reading "
+            "a thread renews it). The Redis saver's ttl is in minutes, not seconds."
+        ),
+    )
     MAX_AGENT_LOOPS: int = Field(
         default=6,
         ge=1,

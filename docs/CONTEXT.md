@@ -15,8 +15,8 @@ Steps 1.1 and 1.2 complete (1.2 Done when: the supply-chain query returns
 Item 1A chunks; re-ingesting 9 filings left 487 points, 0 stale). In step
 1.3, tasks 1.3.1-1.3.13 are done: the agent graph compiles and runs offline
 with a scripted model (diagram: `docs/agent-graph.md`), and `agent.session.ask`
-runs a question on a checkpointed thread; memory verified in process (1.3.15);
-**1.3.16 is next** (Redis checkpointer). Running it with Claude waits for
+runs a question on a checkpointed thread; memory verified in process (1.3.15)
+and stored in Redis (1.3.16, `agent.memory`); **1.3.17 is next**. Running it with Claude waits for
 Anthropic credits. 1.3.7's live call (`-m anthropic`) waits for Anthropic credits. Added outside the original order: 1.2.21, reranking.
 
 Ingest with `python -m finai.ingestion.ingest --ticker AAPL NVDA MSFT
@@ -187,6 +187,18 @@ those 9 filings (FY2023-2026), 487 points.
   returns 400 on the 5.5 models. Server-side refusal fallback:
   `fallbacks: "default"` + beta `server-side-fallback-2026-07-01`, Claude API
   only.
+
+## Verified Redis checkpointer (langgraph-checkpoint-redis 0.5.2, redis 8.1.0)
+
+- `RedisSaver(redis_url=, ttl=)`; `setup()` creates search indexes
+  `checkpoint` and `checkpoint_write` and is safe to repeat. A fresh saver
+  continues a thread another saver wrote. `delete_thread(thread_id)` exists.
+- `ttl={"default_ttl": N, "refresh_on_read": True}`: **N is minutes** (the
+  code multiplies by 60). Keys written by a saver created without `ttl` get
+  no expiry (`TTL -1`), even on a thread another saver gave one.
+- Two short turns: `RedisSaver` 23 keys (~36 KB: `checkpoint`,
+  `checkpoint_latest`, `checkpoint_write`, `write_keys_zset`);
+  `ShallowRedisSaver` 14 keys (~18 KB, latest state only, no step history).
 
 ## Verified LangGraph (langgraph 1.2.14)
 
