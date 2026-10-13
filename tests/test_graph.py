@@ -296,3 +296,17 @@ def test_build_graph_defaults_to_the_real_planner() -> None:
     graph = build_graph()
 
     assert {"planner", "tools", "stop_at_limit"} <= set(graph.get_graph().nodes)
+
+
+def test_saved_diagram_matches_the_graph() -> None:
+    """docs/agent-graph.md is regenerated with `python -m finai.agent.graph`."""
+    import pathlib
+    import re
+
+    from finai.agent.graph import mermaid
+
+    doc = pathlib.Path(__file__).parent.parent / "docs" / "agent-graph.md"
+    saved = re.search(r"```mermaid\n(.*?)\n```", doc.read_text(), re.DOTALL)
+
+    assert saved is not None
+    assert saved.group(1) == mermaid().rstrip("\n")

@@ -13,8 +13,8 @@ gitignored and kept local for now).
 
 Steps 1.1 and 1.2 complete (1.2 Done when: the supply-chain query returns
 Item 1A chunks; re-ingesting 9 filings left 487 points, 0 stale). In step
-1.3, tasks 1.3.1-1.3.12 are done: the agent graph compiles and runs offline
-with a scripted model; **1.3.13 is next**. Running it with Claude waits for
+1.3, tasks 1.3.1-1.3.13 are done: the agent graph compiles and runs offline
+with a scripted model (diagram: `docs/agent-graph.md`); **1.3.14 is next**. Running it with Claude waits for
 Anthropic credits. 1.3.7's live call (`-m anthropic`) waits for Anthropic credits. Added outside the original order: 1.2.21, reranking.
 
 Ingest with `python -m finai.ingestion.ingest --ticker AAPL NVDA MSFT

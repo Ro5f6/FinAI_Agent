@@ -69,3 +69,15 @@ def build_graph(
     graph.add_edge(TOOLS, PLANNER)
     graph.add_edge(STOP_AT_LIMIT, END)
     return graph.compile(checkpointer=checkpointer)
+
+
+def mermaid() -> str:
+    """The compiled graph as a Mermaid diagram, as saved in docs/agent-graph.md.
+
+    Builds the real graph; construction makes no API call.
+    """
+    return build_graph().get_graph().draw_mermaid()
+
+
+if __name__ == "__main__":
+    print(mermaid())
