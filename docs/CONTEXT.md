@@ -13,8 +13,8 @@ gitignored and kept local for now).
 
 Steps 1.1 and 1.2 complete (1.2 Done when: the supply-chain query returns
 Item 1A chunks; re-ingesting 9 filings left 487 points, 0 stale). In step
-1.3, tasks 1.3.1-1.3.10 are done (tools, state, planner model, system
-prompt, planner and tool nodes); **1.3.11 is next**. 1.3.7's live call (`-m anthropic`) waits for Anthropic credits. Added outside the original order: 1.2.21, reranking.
+1.3, tasks 1.3.1-1.3.11 are done (tools, state, planner model, system
+prompt, planner and tool nodes, routing); **1.3.12 is next**. 1.3.7's live call (`-m anthropic`) waits for Anthropic credits. Added outside the original order: 1.2.21, reranking.
 
 Ingest with `python -m finai.ingestion.ingest --ticker AAPL NVDA MSFT
 --years 3` (needs `docker compose up -d`). The local `sec_filings` holds
@@ -173,6 +173,10 @@ those 9 filings (FY2023-2026), 487 points.
   `[thinking (with signature), tool_use]` followed by a `ToolMessage` becomes
   an assistant message with both blocks unchanged and a user `tool_result`
   with the same id; a `SystemMessage` becomes the top-level `system` field.
+- LangChain doesn't repair a thread whose `AIMessage` has tool calls with no
+  `ToolMessage` after it: the next request has `tool_use` followed by plain
+  user text, which the Claude API rejects (each `tool_use` needs a
+  `tool_result` in the next message). Hence `stop_at_limit`.
 - Model facts (Claude API reference, cached 2026-10-06): Sonnet 5.5 $2/$10
   per MTok, default effort `high`; Haiku 5.5 $0.10/$0.50, default `medium`;
   Opus 5.5 $4/$20, default `medium`. On the 5.x models `temperature` is

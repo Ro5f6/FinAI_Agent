@@ -26,13 +26,14 @@ from collections.abc import Callable, Sequence
 from typing import Any
 
 from langchain_core.language_models import LanguageModelInput
-from langchain_core.messages import BaseMessage, SystemMessage, ToolMessage
+from langchain_core.messages import AIMessage, BaseMessage, SystemMessage, ToolMessage
 from langchain_core.runnables import Runnable, RunnableConfig
 from langchain_core.tools import BaseTool
 from langgraph.prebuilt import ToolNode
 
 from finai.agent.prompts import SYSTEM_PROMPT
 from finai.agent.state import AgentState
+from finai.config import settings
 from finai.tools.agent_tools import TOOLS
 
 Planner = Runnable[LanguageModelInput, BaseMessage]
@@ -75,3 +76,34 @@ def make_tool_node(
         }
 
     return run_tools
+
+
+STEP_LIMIT_RESULT = "Not run: the step limit for this question was reached."
+STEP_LIMIT_ANSWER = (
+    "I stopped before finishing: this question needed more lookups than I'm "
+    "allowed for one answer ({limit}). Asking about one company or one aspect "
+    "at a time usually works."
+)
+
+
+def stop_at_limit(state: AgentState) -> dict[str, Any]:
+    """End a run whose last reply still asks for tools at the step limit.
+
+    Ending there would leave the user without an answer and leave tool calls
+    without results in the checkpointed thread; the Claude API rejects a
+    conversation with an unanswered tool call, so the thread's next question
+    would fail. Each pending call gets a result saying it wasn't run, and the
+    user gets a short explanation.
+    """
+    last = state["messages"][-1]
+    results = [
+        ToolMessage(
+            content=STEP_LIMIT_RESULT,
+            tool_call_id=call["id"],
+            name=call["name"],
+            status="error",
+        )
+        for call in getattr(last, "tool_calls", [])
+    ]
+    answer = AIMessage(content=STEP_LIMIT_ANSWER.format(limit=settings.MAX_AGENT_LOOPS))
+    return {"messages": [*results, answer]}
