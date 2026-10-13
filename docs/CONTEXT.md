@@ -13,8 +13,9 @@ gitignored and kept local for now).
 
 Steps 1.1 and 1.2 complete (1.2 Done when: the supply-chain query returns
 Item 1A chunks; re-ingesting 9 filings left 487 points, 0 stale). In step
-1.3, tasks 1.3.1-1.3.11 are done (tools, state, planner model, system
-prompt, planner and tool nodes, routing); **1.3.12 is next**. 1.3.7's live call (`-m anthropic`) waits for Anthropic credits. Added outside the original order: 1.2.21, reranking.
+1.3, tasks 1.3.1-1.3.12 are done: the agent graph compiles and runs offline
+with a scripted model; **1.3.13 is next**. Running it with Claude waits for
+Anthropic credits. 1.3.7's live call (`-m anthropic`) waits for Anthropic credits. Added outside the original order: 1.2.21, reranking.
 
 Ingest with `python -m finai.ingestion.ingest --ticker AAPL NVDA MSFT
 --years 3` (needs `docker compose up -d`). The local `sec_filings` holds
@@ -189,6 +190,10 @@ those 9 filings (FY2023-2026), 487 points.
 
 - A state field without a reducer is **replaced** by each step's return; with
   `operator.add` it accumulates; `add_messages` appends and assigns IDs.
+- `add_messages` gives each message an ID as it's added (mutating the object)
+  and treats a later message with a known ID as an update, replacing the
+  earlier one in place. Re-sending one message object overwrites history:
+  scripted test models must build a fresh message per reply.
 - With a checkpointer the state persists per `thread_id`, so `loop_count`
   must be reset by each new question's input or it carries over.
 - `ToolNode` (langgraph-prebuilt 1.1.0) only runs inside a graph (outside:
