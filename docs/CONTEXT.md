@@ -14,7 +14,8 @@ gitignored and kept local for now).
 Steps 1.1 and 1.2 complete (1.2 Done when: the supply-chain query returns
 Item 1A chunks; re-ingesting 9 filings left 487 points, 0 stale). In step
 1.3, tasks 1.3.1-1.3.13 are done: the agent graph compiles and runs offline
-with a scripted model (diagram: `docs/agent-graph.md`); **1.3.14 is next**. Running it with Claude waits for
+with a scripted model (diagram: `docs/agent-graph.md`), and `agent.session.ask`
+runs a question on a checkpointed thread; **1.3.15 is next**. Running it with Claude waits for
 Anthropic credits. 1.3.7's live call (`-m anthropic`) waits for Anthropic credits. Added outside the original order: 1.2.21, reranking.
 
 Ingest with `python -m finai.ingestion.ingest --ticker AAPL NVDA MSFT
@@ -190,6 +191,10 @@ those 9 filings (FY2023-2026), 487 points.
 
 - A state field without a reducer is **replaced** by each step's return; with
   `operator.add` it accumulates; `add_messages` appends and assigns IDs.
+- A checkpointed graph invoked without `thread_id` raises a bare
+  `KeyError: 'thread_id'`. `retrieved_docs` (an `operator.add` list) starts
+  as [] on a new thread without being passed. A one-step answer saves 3
+  checkpoints; `get_state` on an unknown thread returns empty values.
 - `add_messages` gives each message an ID as it's added (mutating the object)
   and treats a later message with a known ID as an update, replacing the
   earlier one in place. Re-sending one message object overwrites history:
