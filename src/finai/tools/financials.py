@@ -20,6 +20,16 @@ filers (docs/CONTEXT.md):
 * Cash comes from the cash-flow statement's instants, which include the year
   before the earliest income year: the third year's cash is the opening
   balance the plan asked for.
+* Breakdowns (revenue by product, geography, business segment) come from
+  ``facts.get_facts_with_dimensions()``, which gives every axis of a fact;
+  the statement view shows one axis per row and mislabels some (XOM revenue
+  members labelled "Pension Benefits"). A breakdown member is a fact with
+  exactly one of those three axes, ignoring the ``ConsolidationItemsAxis =
+  OperatingSegmentsMember`` qualifier segment facts carry. Facts with two
+  axes (KO concentrate x US) are left out: mixing them double-counts. Many
+  axes hold nested or overlapping members (AAPL "Products" and iPhone, F's
+  two segment groupings), so each breakdown says whether its members add up
+  to the total; when they don't, they must not be summed.
 * Debt is the sum of the debt lines presented on the balance sheet; it has
   only two years, so the third year's debt is reported as unavailable.
 
@@ -29,6 +39,7 @@ profit (banks, oil majors, WMT, F).
 """
 
 import datetime as dt
+import re
 from typing import Any
 
 import pandas as pd
@@ -64,6 +75,19 @@ CASH = (
 DEBT_LINES = ("ShortTermDebt", "CurrentPortionOfLongTermDebt", "LongTermDebt")
 
 
+# The axes reported as breakdowns, by the name used in the result.
+BREAKDOWN_AXES = {
+    "srt:ProductOrServiceAxis": "product",
+    "srt:StatementGeographicalAxis": "geography",
+    "us-gaap:StatementBusinessSegmentsAxis": "segment",
+}
+# Segment facts carry this as a second dimension; it marks them as segment
+# figures and is not a breakdown of its own.
+_SEGMENT_QUALIFIER = ("srt:ConsolidationItemsAxis", "us-gaap:OperatingSegmentsMember")
+# Members add up to the total when within this share of it.
+_ADDS_UP_TOLERANCE = 0.005
+
+
 class Figure(BaseModel):
     """One line item across the fiscal years, with where it came from."""
 
@@ -74,6 +98,21 @@ class Figure(BaseModel):
     concept: str | None
     label: str | None
     values: dict[int, float | None]
+
+
+class Breakdown(BaseModel):
+    """One concept split along one axis, e.g. revenue by product."""
+
+    model_config = ConfigDict(frozen=True)
+
+    of: str
+    axis: str
+    members: list[Figure]
+    # True when, every year, the members sum to the total. False means the
+    # members overlap or nest (AAPL "Products" and iPhone) or leave part out:
+    # report them one by one and never add them up.
+    adds_up_to_total: bool
+    dropped: dict[str, str]
 
 
 class FinancialHistory(BaseModel):
@@ -87,6 +126,7 @@ class FinancialHistory(BaseModel):
     fiscal_year_ends: dict[int, dt.date]
     figures: dict[str, Figure]
     debt_components: list[Figure]
+    revenue_breakdowns: list[Breakdown]
     unavailable: dict[str, str]
     source: str = "10-K XBRL"
 
@@ -215,6 +255,98 @@ def _debt_components(xbrl: Any, ends: dict[int, dt.date]) -> list[Figure]:
     return components
 
 
+def _member_label(xbrl: Any, member: str) -> str:
+    """The company's label for a member, without "[Member]"; else from its name."""
+    element = xbrl.element_catalog.get(member.replace(":", "_"))
+    labels = getattr(element, "labels", None) or {}
+    label = labels.get("http://www.xbrl.org/2003/role/label")
+    if label:
+        return label.removesuffix(" [Member]").strip()
+    prefix, _, local = member.partition(":")
+    name = local.removesuffix("Member")
+    if prefix == "country":  # ISO codes from the country taxonomy: US, CN, TW
+        return name
+    return re.sub(
+        r"(?<=[a-z])(?=[A-Z])", " ", name
+    )  # OtherCountries -> Other Countries
+
+
+def _breakdowns(
+    xbrl: Any, revenue: Figure, ends: dict[int, dt.date]
+) -> list[Breakdown]:
+    facts = xbrl.facts.get_facts_with_dimensions()
+    rows = _annual(facts[facts["concept"] == f"us-gaap:{revenue.concept}"])
+    dim_columns = [c for c in rows.columns if c.startswith("dim_")]
+    by_end = {str(end): year for year, end in ends.items()}
+
+    # (axis, member) -> {year: set of values}
+    found: dict[tuple[str, str], dict[int, set[float]]] = {}
+    for _, row in rows.iterrows():
+        year = by_end.get(str(row["period_end"])[:10])
+        if year is None or pd.isna(row["numeric_value"]):
+            continue
+        dims = {c[4:]: row[c] for c in dim_columns if pd.notna(row[c])}
+        dims = {_dim_name(axis): member for axis, member in dims.items()}
+        if dims.get(_SEGMENT_QUALIFIER[0]) == _SEGMENT_QUALIFIER[1]:
+            del dims[_SEGMENT_QUALIFIER[0]]
+        if len(dims) != 1:
+            continue
+        ((axis, member),) = dims.items()
+        if axis not in BREAKDOWN_AXES:
+            continue
+        found.setdefault((axis, member), {}).setdefault(year, set()).add(
+            float(row["numeric_value"])
+        )
+
+    breakdowns = []
+    for axis, name in BREAKDOWN_AXES.items():
+        members, dropped = [], {}
+        for (member_axis, member), by_year in found.items():
+            if member_axis != axis:
+                continue
+            label = _member_label(xbrl, member)
+            if any(len(v) > 1 for v in by_year.values()):
+                dropped[label] = "conflicting values for one year"
+                continue
+            values = {
+                y: (next(iter(by_year[y])) if y in by_year else None) for y in ends
+            }
+            members.append(
+                Figure(
+                    name=member,
+                    unit="USD",
+                    concept=revenue.concept,
+                    label=label,
+                    values=values,
+                )
+            )
+        if not members and not dropped:
+            continue
+        adds_up = bool(members) and all(
+            revenue.values.get(y)
+            and all(m.values[y] is not None for m in members)
+            and abs(sum(m.values[y] for m in members) - revenue.values[y])
+            <= _ADDS_UP_TOLERANCE * abs(revenue.values[y])
+            for y in ends
+        )
+        breakdowns.append(
+            Breakdown(
+                of="revenue",
+                axis=name,
+                members=members,
+                adds_up_to_total=adds_up,
+                dropped=dropped,
+            )
+        )
+    return breakdowns
+
+
+def _dim_name(column_suffix: str) -> str:
+    """``srt_ProductOrServiceAxis`` -> ``srt:ProductOrServiceAxis``."""
+    prefix, _, local = column_suffix.partition("_")
+    return f"{prefix}:{local}"
+
+
 def _ratio(
     numerator: Figure | None, denominator: Figure | None, years: list[int]
 ) -> dict[int, float | None]:
@@ -314,6 +446,8 @@ def financial_history(filing: Any, ticker: str) -> FinancialHistory:
     else:
         unavailable["total_debt"] = "no debt lines on the balance sheet"
 
+    breakdowns = _breakdowns(xbrl, revenue, ends) if revenue else []
+
     return FinancialHistory(
         ticker=meta.ticker,
         accession=meta.accession,
@@ -321,6 +455,7 @@ def financial_history(filing: Any, ticker: str) -> FinancialHistory:
         fiscal_year_ends=ends,
         figures=figures,
         debt_components=components,
+        revenue_breakdowns=breakdowns,
         unavailable=unavailable,
     )
 

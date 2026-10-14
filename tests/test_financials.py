@@ -73,34 +73,70 @@ class _Statement:
         return self.df
 
 
+class _Element:
+    def __init__(self, label: str) -> None:
+        self.labels = {"http://www.xbrl.org/2003/role/label": label}
+
+
 class _XBRL:
+    """Stand-in for edgartools' XBRL: ``query()`` over a fact table, the
+    balance sheet's debt rows, dimensional facts and member labels."""
+
     def __init__(
-        self, facts: list[dict], balance_rows: list[dict] | None = None
+        self,
+        facts: list[dict],
+        balance_rows: list[dict] | None = None,
+        dimension_facts: list[dict] | None = None,
+        labels: dict[str, str] | None = None,
     ) -> None:
-        self.facts = pd.DataFrame(facts)
+        self._facts = pd.DataFrame(facts)
+        dims = pd.DataFrame(dimension_facts or [], columns=_DIM_COLUMNS)
+        self.facts = type(
+            "Facts", (), {"get_facts_with_dimensions": lambda _self: dims}
+        )()
+        self.element_catalog = {k: _Element(v) for k, v in (labels or {}).items()}
         rows = balance_rows or []
+        columns = [
+            "concept",
+            "label",
+            "standard_concept",
+            "dimension",
+            ENDS[2025],
+            ENDS[2024],
+        ]
+        sheet = pd.DataFrame(rows, columns=columns)
         self.statements = type(
-            "S",
-            (),
-            {
-                "balance_sheet": lambda _self: _Statement(
-                    pd.DataFrame(
-                        rows,
-                        columns=[
-                            "concept",
-                            "label",
-                            "standard_concept",
-                            "dimension",
-                            ENDS[2025],
-                            ENDS[2024],
-                        ],
-                    )
-                )
-            },
+            "S", (), {"balance_sheet": lambda _self: _Statement(sheet)}
         )()
 
     def query(self) -> _Query:
-        return _Query(self.facts)
+        return _Query(self._facts)
+
+
+_DIM_COLUMNS = [
+    "concept",
+    "numeric_value",
+    "period_start",
+    "period_end",
+    "dim_srt_ProductOrServiceAxis",
+    "dim_srt_StatementGeographicalAxis",
+    "dim_us-gaap_StatementBusinessSegmentsAxis",
+    "dim_srt_ConsolidationItemsAxis",
+    "dim_us-gaap_EquityMethodInvestmentNonconsolidatedInvesteeAxis",
+]
+
+
+def _dim_fact(concept: str, value: float, year: int, **dims: str) -> dict:
+    """One dimensional fact; ``dims`` maps dim_* column names to members."""
+    row = {c: None for c in _DIM_COLUMNS}
+    row.update(
+        concept=f"us-gaap:{concept}",
+        numeric_value=value,
+        period_start=STARTS[year],
+        period_end=ENDS[year],
+    )
+    row.update({f"dim_{k}": v for k, v in dims.items()})
+    return row
 
 
 class _Filing:
@@ -304,6 +340,163 @@ def test_net_income_falls_back_to_common_stockholders() -> None:
     )
 
 
+# --- revenue breakdowns --------------------------------------------------------
+
+REV = "RevenueFromContractWithCustomerExcludingAssessedTax"
+SEG = {"srt_ConsolidationItemsAxis": "us-gaap:OperatingSegmentsMember"}
+
+
+def _apple_with(dimension_facts: list[dict], labels: dict | None = None) -> _XBRL:
+    base = _apple_like()
+    return _XBRL(base._facts.to_dict("records"), None, dimension_facts, labels)
+
+
+def _by_axis(h, axis: str):
+    return next(b for b in h.revenue_breakdowns if b.axis == axis)
+
+
+def _segments(years=(2025, 2024, 2023)) -> list[dict]:
+    split = {
+        2025: (178_353e6, 237_808e6),
+        2024: (167_045e6, 223_990e6),
+        2023: (162_560e6, 220_725e6),
+    }
+    return [
+        f
+        for y in years
+        for f in (
+            _dim_fact(
+                REV,
+                split[y][0],
+                y,
+                **SEG,
+                **{
+                    "us-gaap_StatementBusinessSegmentsAxis": "aapl:AmericasSegmentMember"
+                },
+            ),
+            _dim_fact(
+                REV,
+                split[y][1],
+                y,
+                **SEG,
+                **{"us-gaap_StatementBusinessSegmentsAxis": "aapl:RestOfWorldMember"},
+            ),
+        )
+    ]
+
+
+def test_segments_ignore_the_qualifier_and_add_up() -> None:
+    labels = {"aapl_AmericasSegmentMember": "Americas Segment [Member]"}
+
+    h = financial_history(_Filing(_apple_with(_segments(), labels)), "AAPL")
+    seg = _by_axis(h, "segment")
+
+    assert [m.label for m in seg.members] == ["Americas Segment", "Rest Of World"]
+    assert seg.members[0].values[2025] == 178_353e6
+    assert seg.adds_up_to_total
+
+
+def test_nested_members_are_flagged_as_not_adding_up() -> None:
+    """AAPL lists "Products" and the iPhone inside it on the same axis."""
+    facts = [
+        _dim_fact(REV, v, y, srt_ProductOrServiceAxis=m)
+        for y in (2025, 2024, 2023)
+        for m, v in (
+            ("us-gaap:ProductMember", 307_003e6),
+            ("aapl:IPhoneMember", 209_586e6),
+            ("us-gaap:ServiceMember", 109_158e6),
+        )
+    ]
+
+    product = _by_axis(
+        financial_history(_Filing(_apple_with(facts)), "AAPL"), "product"
+    )
+
+    assert not product.adds_up_to_total
+    assert {m.label for m in product.members} == {"Product", "IPhone", "Service"}
+
+
+def test_two_axis_facts_are_left_out() -> None:
+    """KO's concentrate x United States would double-count with the totals."""
+    facts = _segments() + [
+        _dim_fact(
+            REV,
+            9e9,
+            2025,
+            srt_ProductOrServiceAxis="ko:ConcentrateOperationsMember",
+            srt_StatementGeographicalAxis="country:US",
+        ),
+    ]
+
+    h = financial_history(_Filing(_apple_with(facts)), "AAPL")
+
+    assert [b.axis for b in h.revenue_breakdowns] == ["segment"]
+
+
+def test_other_axes_are_ignored() -> None:
+    facts = _segments() + [
+        _dim_fact(
+            REV,
+            102.8e9,
+            2025,
+            **{
+                "us-gaap_EquityMethodInvestmentNonconsolidatedInvesteeAxis": "x:Investee"
+            },
+        ),
+    ]
+
+    assert [
+        b.axis
+        for b in financial_history(
+            _Filing(_apple_with(facts)), "AAPL"
+        ).revenue_breakdowns
+    ] == ["segment"]
+
+
+def test_country_members_keep_their_codes() -> None:
+    facts = [
+        _dim_fact(REV, v, y, srt_StatementGeographicalAxis=m)
+        for y in (2025, 2024, 2023)
+        for m, v in (
+            ("country:US", 151_790e6),
+            ("aapl:OtherCountriesMember", 264_371e6),
+        )
+    ]
+
+    geo = _by_axis(financial_history(_Filing(_apple_with(facts)), "AAPL"), "geography")
+
+    assert [m.label for m in geo.members] == ["US", "Other Countries"]
+
+
+def test_conflicting_member_is_dropped_with_a_reason() -> None:
+    """XOM reports some members twice with different values for one year."""
+    facts = _segments() + [
+        _dim_fact(
+            REV,
+            1.0e9,
+            2025,
+            **SEG,
+            **{"us-gaap_StatementBusinessSegmentsAxis": "aapl:AmericasSegmentMember"},
+        ),
+    ]
+
+    seg = _by_axis(financial_history(_Filing(_apple_with(facts)), "AAPL"), "segment")
+
+    assert [m.label for m in seg.members] == ["Rest Of World"]
+    assert seg.dropped == {"Americas Segment": "conflicting values for one year"}
+    assert not seg.adds_up_to_total
+
+
+def test_missing_year_breaks_adds_up() -> None:
+    seg = _by_axis(
+        financial_history(_Filing(_apple_with(_segments(years=(2025, 2024)))), "AAPL"),
+        "segment",
+    )
+
+    assert seg.members[0].values[2023] is None
+    assert not seg.adds_up_to_total
+
+
 @pytest.mark.network
 @pytest.mark.parametrize(
     ("ticker", "year", "revenue", "eps"),
@@ -324,3 +517,17 @@ def test_live_figures_match_the_filings(
     assert h.figures["revenue"].values[year] == pytest.approx(revenue, rel=1e-3)
     assert h.figures["eps_diluted"].values[year] == pytest.approx(eps)
     assert h.figures["total_debt"].values[h.fiscal_years[2]] is None
+
+
+@pytest.mark.network
+def test_live_breakdowns() -> None:
+    aapl = financials.get_financial_history("AAPL")
+    product = next(b for b in aapl.revenue_breakdowns if b.axis == "product")
+    iphone = next(m for m in product.members if m.name == "aapl:IPhoneMember")
+    assert iphone.values[2025] == 209_586e6
+    assert not product.adds_up_to_total  # "Product" and iPhone nest
+
+    wmt = financials.get_financial_history("WMT")
+    assert next(
+        b for b in wmt.revenue_breakdowns if b.axis == "segment"
+    ).adds_up_to_total

@@ -17,8 +17,8 @@ Item 1A chunks; re-ingesting 9 filings left 487 points, 0 stale). In step
 with a scripted model (diagram: `docs/agent-graph.md`), and `agent.session.ask`
 runs a question on a checkpointed thread; memory verified in process (1.3.15)
 and stored in Redis, surviving a process restart (1.3.16-1.3.17). **1.3.18-1.3.21
-(the test prompts) need Claude, so wait for Anthropic credits.** 1.3.22 in progress:
-headline figures done (`tools/financials.py`), breakdowns by dimension next. Step 1.3's
+(the test prompts) need Claude, so wait for Anthropic credits.** 1.3.22 done:
+`tools/financials.py` (headline figures and revenue breakdowns); **1.3.23 next**. Step 1.3's
 Done when: memory survives a restart (met); prompt 1.3.20 calls both tools and
 the answer cites 10-K sections (needs Claude). Running it with Claude waits for
 Anthropic credits. 1.3.7's live call (`-m anthropic`) waits for Anthropic credits. Added outside the original order: 1.2.21, reranking.
@@ -133,6 +133,23 @@ those 9 filings (FY2023-2026), 487 points.
   `CurrentPortionOfLongTermDebt`, `LongTermDebt`) are separate presented lines
   in all ten; WMT's include finance leases. JPM's long-term line is
   `LongTermDebtAndCapitalLeaseObligationsIncludingCurrentMaturities`.
+- `facts.get_facts_with_dimensions()` adds a `dim_<prefix>_<Axis>` column
+  per axis, so a fact's full dimension set is visible (the query facts have
+  only `is_dimensioned`; the statement view shows one axis per row and
+  mislabels some: XOM revenue members labelled "Pension Benefits - U.S.",
+  AAPL/NVDA/WMT segments all "Operating segments").
+- Segment facts carry `srt:ConsolidationItemsAxis =
+  us-gaap:OperatingSegmentsMember` as a second dimension. Products x
+  geography facts exist (KO concentrate x US) beside one-axis totals.
+- Revenue breakdowns with one real axis, ten filers: geography adds up for
+  AAPL NVDA MSFT F KO WMT; segments for AAPL NVDA MSFT GME RIVN WMT. Not
+  adding up: nested products (AAPL, NVDA, MSFT, F, RIVN), F's two segment
+  groupings, JPM segments (98%, no Corporate), KO segments (include
+  intersegment sales). XOM's product members have conflicting values for one
+  year and are dropped.
+- `element_catalog["ko_EuropeMiddleEastAfricaMember"].labels` has the
+  company's labels (standard label ends " [Member]"); `country:*` members
+  aren't in it (except some filers', whose labels are upper case).
 - First `filing.xbrl()` for a filing downloads it (JPM 12.5 s); cached after
   (0.6-1.4 s for any of the ten, JPM 7,928 facts).
 
