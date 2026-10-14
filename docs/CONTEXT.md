@@ -17,7 +17,8 @@ Item 1A chunks; re-ingesting 9 filings left 487 points, 0 stale). In step
 with a scripted model (diagram: `docs/agent-graph.md`), and `agent.session.ask`
 runs a question on a checkpointed thread; memory verified in process (1.3.15)
 and stored in Redis, surviving a process restart (1.3.16-1.3.17). **1.3.18-1.3.21
-(the test prompts) need Claude, so wait for Anthropic credits.** Step 1.3's
+(the test prompts) need Claude, so wait for Anthropic credits.** 1.3.22 in progress:
+headline figures done (`tools/financials.py`), breakdowns by dimension next. Step 1.3's
 Done when: memory survives a restart (met); prompt 1.3.20 calls both tools and
 the answer cites 10-K sections (needs Claude). Running it with Claude waits for
 Anthropic credits. 1.3.7's live call (`-m anthropic`) waits for Anthropic credits. Added outside the original order: 1.2.21, reranking.
@@ -106,6 +107,34 @@ those 9 filings (FY2023-2026), 487 points.
   of 298 table chunks holding figures, 3 lacked a year and 17 a unit, after
   attaching captions, merging blank-separated blocks and carrying row-group
   labels across pieces.
+
+## Verified XBRL facts for financial history (edgartools 5.60.0, ten filers)
+
+- `xbrl.query().by_concept("us-gaap:X", exact=True).to_dataframe()` gives
+  facts with `numeric_value`, `period_start`/`period_end` (durations) or
+  `period_instant`, `unit_ref`, `decimals`, `is_dimensioned`, `label`.
+- **`FactQuery.exclude_dimensions()` is a no-op**: AAPL revenue returned 45
+  facts with and without it (iPhone, Mac, regions...). `is_dimensioned` is
+  right (42 True, 3 False), so filter on it.
+- **The facts' `fiscal_year` is wrong for comparative periods**: AAPL cash at
+  2024-09-28 is labelled 2025, FY2023 EPS labelled 2024. Use the period end.
+- `standard_concept` can name a component: JPM's `Revenue` row is principal
+  transactions ($27.2B); the total is `RevenuesNetOfInterestExpense`
+  ($182.45B), which has no standard concept. WMT has `Revenues` ($713.2B,
+  total) and a net-sales concept ($706.4B). EPS has no standard concept;
+  `EarningsPerShareDiluted` is 10/10. F's net income is only
+  `NetIncomeLossAvailableToCommonStockholdersBasic`.
+- Gross profit 6/10 (not F, JPM, WMT, XOM); operating income 8/10 (not JPM,
+  XOM). Cash `CashCashEquivalentsRestrictedCash...` 10/10, with instants back
+  to the opening balance of the earliest income year.
+- The cash-flow statement rows for beginning and end cash share one concept
+  and differ only by label; instants avoid that.
+- Debt lines on the balance sheet (standard concepts `ShortTermDebt`,
+  `CurrentPortionOfLongTermDebt`, `LongTermDebt`) are separate presented lines
+  in all ten; WMT's include finance leases. JPM's long-term line is
+  `LongTermDebtAndCapitalLeaseObligationsIncludingCurrentMaturities`.
+- First `filing.xbrl()` for a filing downloads it (JPM 12.5 s); cached after
+  (0.6-1.4 s for any of the ten, JPM 7,928 facts).
 
 ## Verified 10-K layout (10 filers: AAPL F MSFT NVDA GME RIVN JPM KO XOM WMT)
 
