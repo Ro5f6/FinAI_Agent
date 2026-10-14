@@ -126,3 +126,44 @@ def test_delete_thread_removes_it(thread_id: str) -> None:
     saver.delete_thread(thread_id)
 
     assert graph.get_state({"configurable": {"thread_id": thread_id}}).values == {}
+
+
+_ONE_TURN = """
+import sys
+from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.runnables import RunnableLambda
+from finai.agent.graph import build_graph
+from finai.agent.memory import redis_checkpointer
+from finai.agent.session import answer_text, ask
+
+def reply(messages, config=None):
+    questions = [m.content for m in messages if isinstance(m, HumanMessage)]
+    return AIMessage(f"I can see {len(questions)} question(s): {questions}")
+
+graph = build_graph(RunnableLambda(reply), checkpointer=redis_checkpointer())
+print(answer_text(ask(graph, sys.argv[2], user_id="demo", thread_id=sys.argv[1])))
+"""
+
+
+@pytest.mark.redis
+def test_a_thread_survives_a_process_restart(thread_id: str) -> None:
+    """1.3.17: two separate processes; nothing can carry over in memory."""
+    import subprocess
+    import sys
+
+    def turn(question: str) -> str:
+        run = subprocess.run(
+            [sys.executable, "-c", _ONE_TURN, thread_id, question],
+            capture_output=True,
+            text=True,
+            timeout=120,
+            check=False,
+        )
+        assert run.returncode == 0, run.stderr
+        return run.stdout.strip().splitlines()[-1]
+
+    first = turn("What's NVDA's P/E?")
+    second = turn("And AMD's?")
+
+    assert first == "I can see 1 question(s): [\"What's NVDA's P/E?\"]"
+    assert second == 'I can see 2 question(s): ["What\'s NVDA\'s P/E?", "And AMD\'s?"]'

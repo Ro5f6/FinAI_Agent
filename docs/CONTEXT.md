@@ -16,7 +16,10 @@ Item 1A chunks; re-ingesting 9 filings left 487 points, 0 stale). In step
 1.3, tasks 1.3.1-1.3.13 are done: the agent graph compiles and runs offline
 with a scripted model (diagram: `docs/agent-graph.md`), and `agent.session.ask`
 runs a question on a checkpointed thread; memory verified in process (1.3.15)
-and stored in Redis (1.3.16, `agent.memory`); **1.3.17 is next**. Running it with Claude waits for
+and stored in Redis, surviving a process restart (1.3.16-1.3.17). **1.3.18-1.3.21
+(the test prompts) need Claude, so wait for Anthropic credits.** Step 1.3's
+Done when: memory survives a restart (met); prompt 1.3.20 calls both tools and
+the answer cites 10-K sections (needs Claude). Running it with Claude waits for
 Anthropic credits. 1.3.7's live call (`-m anthropic`) waits for Anthropic credits. Added outside the original order: 1.2.21, reranking.
 
 Ingest with `python -m finai.ingestion.ingest --ticker AAPL NVDA MSFT
