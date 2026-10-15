@@ -109,6 +109,12 @@ class Settings(BaseSettings):
     FINNHUB_API_KEY: SecretStr = Field(
         description="Finnhub API key for live quotes. Free plan: US listings, 60 calls/min.",
     )
+    ALPACA_API_KEY: SecretStr = Field(
+        description="Alpaca key ID for daily price history. A free paper account's key works.",
+    )
+    ALPACA_SECRET_KEY: SecretStr = Field(
+        description="Alpaca secret key, paired with ALPACA_API_KEY.",
+    )
 
     # --- Agent state ---
     REDIS_URL: str = Field(

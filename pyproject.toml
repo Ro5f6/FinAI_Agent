@@ -39,12 +39,13 @@ testpaths = ["tests"]
 # Tests that need the docker compose Qdrant run with `-m qdrant`; tests that
 # call the Voyage API (and spend tokens) with `-m voyage`; Finnhub with
 # `-m finnhub`; Claude with `-m anthropic` (spends credits).
-addopts = "-m 'not network and not qdrant and not voyage and not finnhub and not anthropic and not redis'"
+addopts = "-m 'not network and not qdrant and not voyage and not finnhub and not alpaca and not anthropic and not redis'"
 markers = [
     "network: hits the live SEC EDGAR API",
     "qdrant: needs the Qdrant from docker compose",
     "voyage: calls the Voyage AI API",
     "finnhub: calls the Finnhub API",
+    "alpaca: calls the Alpaca market data API",
     "anthropic: calls the Claude API (spends credits)",
     "redis: needs the Redis from docker compose",
 ]

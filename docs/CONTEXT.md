@@ -19,7 +19,7 @@ runs a question on a checkpointed thread; memory verified in process (1.3.15)
 and stored in Redis, surviving a process restart (1.3.16-1.3.17). **1.3.18-1.3.21
 (the test prompts) need Claude, so wait for Anthropic credits.** 1.3.22 done:
 `tools/financials.py` (headline figures and revenue breakdowns); 1.3.23 done
-(`tools/trends.py`); **1.3.24 next** (needs Alpaca keys). Step 1.3's
+(`tools/trends.py`); 1.3.24 done (`tools/prices.py`); **1.3.25 next**. Step 1.3's
 Done when: memory survives a restart (met); prompt 1.3.20 calls both tools and
 the answer cites 10-K sections (needs Claude). Running it with Claude waits for
 Anthropic credits. 1.3.7's live call (`-m anthropic`) waits for Anthropic credits. Added outside the original order: 1.2.21, reranking.
@@ -336,6 +336,34 @@ those 9 filings (FY2023-2026), 487 points.
 - **`/stock/candle` returns 403 on the free key**: price history is paid-only,
   so Alpaca stays (D-013, 1.3.24).
 - A quote takes ~200-360 ms (three calls); cached it takes 0.01 ms.
+
+## Verified Alpaca behaviour (paper-account key, 2026-10-15)
+
+- `GET https://data.alpaca.markets/v2/stocks/{symbol}/bars` with
+  `timeframe=1Day`, `start`/`end` (ISO dates, inclusive), `adjustment`,
+  `feed`, `limit` (up to 10,000), `page_token`. Headers `APCA-API-KEY-ID` and
+  `APCA-API-SECRET-KEY`. Bar fields: `t`, `o`, `h`, `l`, `c`, `v`, `n`, `vw`.
+  `t` is New York midnight in UTC (`04:00Z` summer, `05:00Z` winter).
+- Rate limit 200/min (`x-ratelimit-limit`). Five years of daily bars is one
+  page (AAPL 1,264 bars).
+- **`feed=sip` works on the free plan for history.** A request whose `end`
+  reaches into the latest 15 minutes gets 403 "subscription does not permit
+  querying recent SIP data"; with no `end` it returns today's partial bar.
+  IEX is one venue: AAPL 2021-10-01 close 138.92 on IEX against 139.14 SIP.
+- `adjustment`: `raw`, `split`, `all` (`bogus` → 400). NVDA around the
+  2024-06-10 10:1 split: raw 1208.88 → 121.79; split 120.89 → 121.79; all
+  120.54 → 121.44 (dividends too).
+- Dividend adjustment moves past prices: over the year to 2026-10-14, 52-week
+  low split vs all: XOM 110.385 vs 107.28 (-2.8%), T high 29.435 vs 28.42
+  (-3.5%), AAPL -0.3%. One-year return split vs all: XOM 58.6% vs 63.2%, T
+  -11.6% vs -7.4%.
+- Symbols are case-insensitive (`aapl` works, unlike Finnhub). Share classes
+  use a dot: `BRK.B` 200, `BRK/B` 404. ADRs (TSM, SHEL) are their US prices.
+- Unknown symbol (ZZZZQ): 200 with `"bars": null`. Bad keys: 401 (HTML body).
+- RIVN's first bar is 2021-11-10 (IPO day close).
+- 10-K `period_of_report` ends (edgartools 5.60.0): AAPL late September
+  (2025-09-27), NVDA late January (2026-01-25, labelled fiscal 2026), WMT
+  January 31, MSFT June 30, RIVN December 31 (five 10-Ks).
 
 ## Verified hybrid search (qdrant-client 1.19.1, fastembed 0.9.0)
 

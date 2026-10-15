@@ -13,6 +13,8 @@ REQUIRED_ENV = {
     "SEC_IDENTITY": "Test User test@example.com",
     "VOYAGE_API_KEY": "pa-test",
     "FINNHUB_API_KEY": "finnhub-test",
+    "ALPACA_API_KEY": "alpaca-key-test",
+    "ALPACA_SECRET_KEY": "alpaca-secret-test",
 }
 
 
@@ -93,6 +95,7 @@ def test_api_keys_are_not_exposed_in_repr(clean_env: pytest.MonkeyPatch) -> None
     assert "sk-ant-test" not in repr(settings)
     assert "pa-test" not in repr(settings)
     assert "finnhub-test" not in repr(settings)
+    assert "alpaca-secret-test" not in repr(settings)
     assert settings.ANTHROPIC_API_KEY.get_secret_value() == "sk-ant-test"
 
 

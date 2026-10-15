@@ -23,6 +23,8 @@ _PLACEHOLDERS = {
     "SEC_IDENTITY": "Collection Only collection@example.com",
     "VOYAGE_API_KEY": "pa-collection-only",
     "FINNHUB_API_KEY": "finnhub-collection-only",
+    "ALPACA_API_KEY": "alpaca-collection-only",
+    "ALPACA_SECRET_KEY": "alpaca-collection-only",
 }
 # Tests never send LangSmith traces, whatever the shell or .env says.
 os.environ["LANGSMITH_TRACING"] = "false"
@@ -39,7 +41,15 @@ import socket
 
 import pytest
 
-LIVE_MARKERS = {"network", "voyage", "qdrant", "finnhub", "anthropic", "redis"}
+LIVE_MARKERS = {
+    "network",
+    "voyage",
+    "qdrant",
+    "finnhub",
+    "alpaca",
+    "anthropic",
+    "redis",
+}
 
 
 class NetworkBlockedError(RuntimeError):
