@@ -11,6 +11,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 from finai.agent import model as model_module
 from finai.agent.model import REFUSAL_FALLBACK_BETA, make_chat_model, make_planner
 from finai.config import settings
+from finai.tools.agent_tools import TOOLS
 
 
 def _payload(question: str = "What's NVDA's P/E?") -> dict:
@@ -32,7 +33,7 @@ def test_request_carries_the_settings() -> None:
 def test_all_tools_are_bound() -> None:
     names = [t["name"] for t in _payload()["tools"]]
 
-    assert names == ["get_live_market_data", "query_company_10k", "get_user_portfolio"]
+    assert names == [t.name for t in TOOLS]
 
 
 def test_no_parameter_the_current_models_reject() -> None:

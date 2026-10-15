@@ -19,7 +19,7 @@ runs a question on a checkpointed thread; memory verified in process (1.3.15)
 and stored in Redis, surviving a process restart (1.3.16-1.3.17). **1.3.18-1.3.21
 (the test prompts) need Claude, so wait for Anthropic credits.** 1.3.22 done:
 `tools/financials.py` (headline figures and revenue breakdowns); 1.3.23 done
-(`tools/trends.py`); 1.3.24 done (`tools/prices.py`); **1.3.25 next**. Step 1.3's
+(`tools/trends.py`); 1.3.24 done (`tools/prices.py`); 1.3.25 done: `get_financial_history` and `get_price_history` are agent tools, five in all (D-036). **Next: 1.3.26** (on-demand ingestion). Step 1.3's
 Done when: memory survives a restart (met); prompt 1.3.20 calls both tools and
 the answer cites 10-K sections (needs Claude). Running it with Claude waits for
 Anthropic credits. 1.3.7's live call (`-m anthropic`) waits for Anthropic credits. Added outside the original order: 1.2.21, reranking.

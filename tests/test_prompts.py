@@ -6,6 +6,7 @@ import re
 from finai.agent.prompts import (
     FILING_CITATION,
     PORTFOLIO_CITATION,
+    PRICE_CITATION,
     QUOTE_CITATION,
     SYSTEM_PROMPT,
 )
@@ -26,6 +27,20 @@ def test_the_example_citations_match_the_verifier_patterns() -> None:
     assert quote is not None
     assert quote.group("quote_time") == "2026-10-09 20:00"
     assert PORTFOLIO_CITATION in SYSTEM_PROMPT
+    price = PRICE_CITATION.search(SYSTEM_PROMPT)
+    assert price is not None
+    assert price.group("end_date") == "2026-10-14"
+    assert "[AAPL 10-K FY2025, Item 8]" in SYSTEM_PROMPT
+
+
+def test_price_citation_rejects_loose_forms() -> None:
+    assert PRICE_CITATION.fullmatch("[Alpaca prices, to 2026-06-15]")
+    for loose in (
+        "[Alpaca, 2026-06-15]",
+        "[Alpaca prices]",
+        "(Alpaca prices, to 2026-06-15)",
+    ):
+        assert not PRICE_CITATION.fullmatch(loose), loose
 
 
 def test_filing_citation_accepts_every_ingested_section() -> None:

@@ -12,6 +12,9 @@ langchain-core 1.6.9).
 
 Expected failures (an unknown ticker, Finnhub unavailable, a company not
 indexed) are returned as data the model can explain. Unexpected errors raise.
+
+The numeric tools return a ``citation`` string built from their own result,
+so the model copies the source rather than composing it.
 """
 
 from typing import Any, Literal
@@ -19,7 +22,7 @@ from typing import Any, Literal
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 
-from finai.tools import filings, market_data, portfolio
+from finai.tools import filings, financials, market_data, portfolio, prices, trends
 
 # The five items ingested (parse.TARGET_ITEMS), as an enum in the schema so
 # the model sees the allowed values rather than learning them from an error.
@@ -109,4 +112,80 @@ def get_user_portfolio(config: RunnableConfig) -> dict[str, Any]:
     return portfolio.get_user_portfolio(user_id=user_id).model_dump(mode="json")
 
 
-TOOLS = [get_live_market_data, query_company_10k, get_user_portfolio]
+@tool(parse_docstring=True)
+def get_financial_history(ticker: str) -> dict[str, Any]:
+    """Get a company's reported annual figures and their computed trends.
+
+    From the latest 10-K's financial statements: revenue, gross and operating
+    margin, net income, diluted EPS and cash for its three fiscal years, total
+    debt for two (the balance sheet has two), and revenue by product,
+    geography or segment where the company tags it. Amounts are in USD, EPS in
+    USD per share, margins and growth are fractions (0.064 is 6.4%). trends
+    holds each year's change over the previous and, in span, the change from
+    the oldest year to the newest with the compound annual growth rate.
+    Margin changes are in percentage points. Growth is null, with a note, when
+    a year is a loss or zero; the change is still given. A breakdown with
+    adds_up_to_total false has overlapping members: report them one by one,
+    never summed. Use for exact reported figures and growth rather than
+    reading numbers from 10-K passages, and cite it with the returned
+    citation.
+
+    Args:
+        ticker: US ticker symbol, e.g. "AAPL".
+    """
+    symbol = ticker.strip().upper()
+    try:
+        history = financials.get_financial_history(symbol)
+    except LookupError as error:
+        # edgartools' CompanyNotFoundError, FilingNotFoundError, or a filing
+        # with no annual revenue facts.
+        return {"status": "not_found", "ticker": symbol, "message": str(error)}
+    return {
+        "status": "ok",
+        "citation": f"[{symbol} 10-K FY{max(history.fiscal_years)}, Item 8]",
+        **history.model_dump(mode="json"),
+        "trends": trends.compute_trends(history).model_dump(mode="json"),
+    }
+
+
+@tool(parse_docstring=True)
+def get_price_history(ticker: str, period: prices.Period = "1y") -> dict[str, Any]:
+    """Get a stock's past performance: return, volatility, drawdown and range.
+
+    From daily closes adjusted for splits and dividends, so total_return
+    includes dividends. All rates are fractions (0.064 is 6.4%):
+    annualised_return (3y and 5y only), annualised_volatility, and
+    max_drawdown (negative) with its peak and trough dates. Returns per fiscal
+    year use the company's 10-K year ends, so they line up with
+    get_financial_history. week_52_high and week_52_low are the prices traded
+    over the year to end_date. full_period is false when the stock has traded
+    for less than the period; start_date says where it begins. Data runs to
+    the last completed trading day, end_date. Cite with the returned citation.
+
+    Args:
+        ticker: US ticker symbol, e.g. "NVDA" or "BRK.B".
+        period: How far back: "1y", "3y" or "5y".
+    """
+    symbol = ticker.strip().upper()
+    try:
+        history = prices.get_price_history(symbol, period)
+    except market_data.TickerNotFoundError as error:
+        return {"status": "not_found", "ticker": symbol, "message": str(error)}
+    except prices.PriceHistoryError as error:
+        return {"status": "unavailable", "ticker": symbol, "message": str(error)}
+    except ValueError as error:
+        return {"status": "invalid_arguments", "message": str(error)}
+    return {
+        "status": "ok",
+        "citation": f"[Alpaca prices, to {history.end_date.isoformat()}]",
+        **history.model_dump(mode="json"),
+    }
+
+
+TOOLS = [
+    get_live_market_data,
+    query_company_10k,
+    get_user_portfolio,
+    get_financial_history,
+    get_price_history,
+]

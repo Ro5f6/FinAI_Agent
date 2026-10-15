@@ -22,6 +22,8 @@ FILING_CITATION = re.compile(
 QUOTE_CITATION = re.compile(
     r"\[Finnhub quote, (?P<quote_time>\d{4}-\d{2}-\d{2} \d{2}:\d{2}) UTC\]"
 )
+# [Alpaca prices, to 2026-10-14]
+PRICE_CITATION = re.compile(r"\[Alpaca prices, to (?P<end_date>\d{4}-\d{2}-\d{2})\]")
 PORTFOLIO_CITATION = "[portfolio]"
 
 SYSTEM_PROMPT = """\
@@ -49,7 +51,10 @@ lookups, such as two companies or a quote and a filing, request them
 together. A 10-K search covers the latest year indexed unless you give a
 fiscal year; to compare years, search once per year. Search with the
 question in plain words; narrow to a section when you know where the answer
-lives (Item 1A for risks, Item 7 for results).
+lives (Item 1A for risks, Item 7 for results). For reported figures such as
+revenue, margins, EPS and their growth, use the financial history tool rather
+than numbers read from passages; for how the stock has performed, the price
+history tool. They return rates as fractions: give 0.064 as 6.4%.
 
 When data is missing
 Tool results say when something isn't there: a company or year not indexed, a
@@ -70,6 +75,9 @@ Cite the source right after each claim it supports, in exactly these forms:
 year and section the search returned;
 [Finnhub quote, 2026-10-09 20:00 UTC] for market data, using the quote time
 it returned;
+[AAPL 10-K FY2025, Item 8] for figures from the financial history tool and
+[Alpaca prices, to 2026-10-14] for price history, each exactly as the tool's
+citation field gives it;
 [portfolio] for the user's holdings.
 Cite only sources that a tool returned in this conversation.
 

@@ -6,6 +6,7 @@ from langchain_core.runnables import RunnableConfig, RunnableLambda
 from finai.agent.nodes import make_planner_node
 from finai.agent.prompts import SYSTEM_PROMPT
 from finai.agent.state import turn_input
+from finai.tools.agent_tools import TOOLS
 
 
 class _Recorder:
@@ -113,7 +114,7 @@ def test_planner_works_with_the_real_tool_bound_model_offline() -> None:
     payload = captured["payload"]
     assert payload["system"] == SYSTEM_PROMPT
     assert [m["role"] for m in payload["messages"]] == ["user"]
-    assert len(payload["tools"]) == 3
+    assert len(payload["tools"]) == len(TOOLS)
 
 
 # --- tool node (1.3.10) -------------------------------------------------------
