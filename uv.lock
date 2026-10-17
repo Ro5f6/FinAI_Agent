@@ -313,6 +313,7 @@ dependencies = [
     { name = "langgraph-checkpoint-redis" },
     { name = "pydantic-settings" },
     { name = "qdrant-client" },
+    { name = "redis" },
     { name = "tiktoken" },
     { name = "voyageai" },
 ]
@@ -335,6 +336,7 @@ requires-dist = [
     { name = "langgraph-checkpoint-redis", specifier = ">=0.5.2" },
     { name = "pydantic-settings", specifier = ">=2.15.0" },
     { name = "qdrant-client", specifier = ">=1.19.1" },
+    { name = "redis", specifier = ">=8.1.0" },
     { name = "tiktoken", specifier = ">=0.14.0" },
     { name = "voyageai", specifier = ">=0.5.0" },
 ]

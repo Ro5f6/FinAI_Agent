@@ -5,6 +5,11 @@ chain question returned FY2025, FY2024 and FY2023 chunks, two of them the same
 paragraph, and "How fast is Azure growing?" ranked FY2024 first. So a search
 without ``fiscal_year`` covers the latest year indexed for the company, and
 the result lists the other years so a comparison can ask for them.
+
+A company with no 10-K stored is queued for ingestion (1.3.27), and the
+result says so (``queued``, ``ingesting``, ``failed``) or why it can't be
+(``no_10k``, ``unknown_ticker``). ``not_indexed`` remains only for when the
+queue or EDGAR is unreachable.
 """
 
 from typing import Literal
@@ -12,12 +17,22 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from finai.ingestion.embed import embed_query
+from finai.ingestion.jobs import request_ingestion
 from finai.ingestion.parse import TARGET_ITEMS
 from finai.ingestion.store import indexed_years, qdrant_client, search
 
 MAX_K = 20
 
-Status = Literal["ok", "not_indexed", "year_not_indexed"]
+Status = Literal[
+    "ok",
+    "year_not_indexed",
+    "queued",
+    "ingesting",
+    "failed",
+    "no_10k",
+    "unknown_ticker",
+    "not_indexed",
+]
 
 
 class TenKPassage(BaseModel):
@@ -42,9 +57,10 @@ class TenKPassage(BaseModel):
 class TenKSearchResult(BaseModel):
     """Passages for one company and year, or why there are none.
 
-    ``status`` is "not_indexed" when no 10-K of the company is stored, and
-    "year_not_indexed" when the requested year isn't; ``available_years``
-    then says which years are.
+    With no 10-K of the company stored, ``status`` is the ingestion request's
+    (queued, ingesting, failed, no_10k, unknown_ticker, or not_indexed if it
+    couldn't be queued) and ``message`` explains it. "year_not_indexed" means
+    the requested year isn't stored; ``available_years`` says which are.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -55,6 +71,7 @@ class TenKSearchResult(BaseModel):
     section: str | None
     available_years: list[int]
     passages: list[TenKPassage] = Field(default_factory=list)
+    message: str | None = None
 
 
 def query_company_10k(
@@ -83,12 +100,14 @@ def query_company_10k(
     client = qdrant_client()
     years = indexed_years(client, symbol)
     if not years:
+        request = request_ingestion(symbol)
         return TenKSearchResult(
-            status="not_indexed",
+            status="not_indexed" if request.status == "unavailable" else request.status,
             ticker=symbol,
             fiscal_year=fiscal_year,
             section=section,
             available_years=[],
+            message=request.message,
         )
     if fiscal_year is not None and fiscal_year not in years:
         return TenKSearchResult(

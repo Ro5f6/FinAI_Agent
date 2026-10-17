@@ -19,7 +19,7 @@ runs a question on a checkpointed thread; memory verified in process (1.3.15)
 and stored in Redis, surviving a process restart (1.3.16-1.3.17). **1.3.18-1.3.21
 (the test prompts) need Claude, so wait for Anthropic credits.** 1.3.22 done:
 `tools/financials.py` (headline figures and revenue breakdowns); 1.3.23 done
-(`tools/trends.py`); 1.3.24 done (`tools/prices.py`); 1.3.25 done: `get_financial_history` and `get_price_history` are agent tools, five in all (D-036). 1.3.26 done: tickers resolve to a 10-K filer before anything is fetched or queued (`fetch.resolve_ticker`, D-037). **Next: 1.3.27** (queue missing filings in a Redis Stream). Step 1.3's
+(`tools/trends.py`); 1.3.24 done (`tools/prices.py`); 1.3.25 done: `get_financial_history` and `get_price_history` are agent tools, five in all (D-036). 1.3.26 done: tickers resolve to a 10-K filer before anything is fetched or queued (`fetch.resolve_ticker`, D-037). 1.3.27 done: a 10-K search for a company not indexed queues it once (`ingestion/jobs.py`, D-038). **Next: 1.3.28** (the worker that reads the queue). Step 1.3's
 Done when: memory survives a restart (met); prompt 1.3.20 calls both tools and
 the answer cites 10-K sections (needs Claude). Running it with Claude waits for
 Anthropic credits. 1.3.7's live call (`-m anthropic`) waits for Anthropic credits. Added outside the original order: 1.2.21, reranking.
@@ -336,6 +336,23 @@ those 9 filings (FY2023-2026), 487 points.
 - **`/stock/candle` returns 403 on the free key**: price history is paid-only,
   so Alpaca stays (D-013, 1.3.24).
 - A quote takes ~200-360 ms (three calls); cached it takes 0.01 ms.
+
+## Verified Redis queue calls (redis-py 8.1.0, Redis 8, 2026-10-17)
+
+- `Redis.from_url(url, decode_responses=True)`; `register_script(src)`
+  returns a callable taking `keys=[...]`, `args=[...]`. Inside Lua,
+  `redis.call('SET', k, v, 'NX', 'EX', ttl)` is truthy when set and false
+  when the key exists; the script returns the `XADD` ID or nil (None).
+- `XADD key MAXLEN ~ N * field value ...` works inside the script; IDs look
+  like `1792259094254-0`; `xrange` returns `[(id, {field: value})]`.
+- `set(key, value, keepttl=True)` changes a value without resetting its TTL
+  (the worker's status updates).
+- 20 threads calling `request_ingestion` at once produced one stream entry.
+- `redis` was only a transitive dependency (of langgraph-checkpoint-redis);
+  it is now a direct one.
+- The shell exports `EMBEDDING_MODEL=BAAI/bge-small-en-v1.5`, which overrides
+  `.env` and makes Voyage reject live searches; run live scripts with
+  `env -u EMBEDDING_MODEL -u LLM_MODEL`.
 
 ## Verified ticker resolution (edgartools 5.60.0, 2026-10-17)
 

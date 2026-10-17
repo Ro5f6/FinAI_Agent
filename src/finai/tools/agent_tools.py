@@ -75,10 +75,14 @@ def query_company_10k(
     Returns the passages with what a citation needs: ticker, fiscal year,
     filing date, section and accession number. Without fiscal_year it
     searches the latest year indexed and lists available_years; to compare
-    years, call once per year. status is "not_indexed" when the company's
-    10-K isn't stored and "year_not_indexed" when that year isn't. Figures in
-    passages are as printed in the filing; tables give the unit and year in
-    their caption and headings.
+    years, call once per year. If the company's 10-K isn't stored yet, it is
+    fetched in the background: status is then "queued", "ingesting" or
+    "failed", and message says when to expect it. "no_10k" means the company
+    files no 10-K (a foreign filer on Form 20-F, an ETF or a fund) and
+    "unknown_ticker" that SEC doesn't know the ticker; message says which.
+    "year_not_indexed" means that year isn't stored. Figures in passages are
+    as printed in the filing; tables give the unit and year in their caption
+    and headings.
 
     Args:
         ticker: US ticker symbol, e.g. "AAPL".

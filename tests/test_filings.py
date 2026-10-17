@@ -11,6 +11,7 @@ from finai.config import settings
 from finai.ingestion import embed
 from finai.ingestion.chunk import chunk_filing
 from finai.ingestion.fetch import FilingMeta
+from finai.ingestion.jobs import IngestionRequest
 from finai.ingestion.store import ensure_collection, upsert_filing
 from finai.tools import filings
 from finai.tools.filings import query_company_10k
@@ -110,12 +111,52 @@ def test_missing_year_says_which_years_exist(index: QdrantClient) -> None:
     assert result.available_years == [2025, 2024]
 
 
-def test_unindexed_company(index: QdrantClient) -> None:
-    result = query_company_10k("TSLA", "supply risks")
+def _ingestion(status: str, message: str = "msg"):
+    def request(ticker: str) -> IngestionRequest:
+        requested.append(ticker)
+        return IngestionRequest(ticker=ticker, status=status, message=message)
 
-    assert result.status == "not_indexed"
+    requested: list[str] = []
+    request.requested = requested
+    return request
+
+
+@pytest.mark.parametrize(
+    "status", ["queued", "ingesting", "failed", "no_10k", "unknown_ticker"]
+)
+def test_unindexed_company_is_queued_and_says_so(
+    index: QdrantClient, monkeypatch: pytest.MonkeyPatch, status: str
+) -> None:
+    request = _ingestion(status, "TSLA's 10-K is queued")
+    monkeypatch.setattr(filings, "request_ingestion", request)
+
+    result = query_company_10k("tsla", "supply risks")
+
+    assert request.requested == ["TSLA"]
+    assert result.status == status
+    assert result.message == "TSLA's 10-K is queued"
     assert result.available_years == []
     assert result.passages == []
+
+
+def test_unindexed_company_when_the_queue_is_down(
+    index: QdrantClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        filings, "request_ingestion", _ingestion("unavailable", "Redis down")
+    )
+    result = query_company_10k("TSLA", "supply risks")
+    assert (result.status, result.message) == ("not_indexed", "Redis down")
+
+
+def test_indexed_company_is_not_queued(
+    index: QdrantClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    request = _ingestion("queued")
+    monkeypatch.setattr(filings, "request_ingestion", request)
+    query_company_10k("AAPL", "supply risks", fiscal_year=2019)
+    query_company_10k("AAPL", "supply risks")
+    assert request.requested == []
 
 
 @pytest.mark.parametrize("section", ["Item 2", "Risk Factors", "1A"])

@@ -129,6 +129,15 @@ class Settings(BaseSettings):
             "a thread renews it). The Redis saver's ttl is in minutes, not seconds."
         ),
     )
+    INGEST_STATUS_TTL_MINUTES: int = Field(
+        default=24 * 60,
+        ge=1,
+        description=(
+            "How long a ticker's on-demand ingestion status (queued, ingesting, "
+            "failed) is kept. Until it expires the ticker isn't queued again, so "
+            "a failed fetch is retried at most once per this period."
+        ),
+    )
     MAX_AGENT_LOOPS: int = Field(
         default=6,
         ge=1,
