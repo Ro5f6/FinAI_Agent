@@ -137,7 +137,7 @@ def get_financial_history(ticker: str) -> dict[str, Any]:
     try:
         history = financials.get_financial_history(symbol)
     except LookupError as error:
-        # edgartools' CompanyNotFoundError, FilingNotFoundError, or a filing
+        # UnknownTickerError, FilingNotFoundError (no 10-K), or a filing
         # with no annual revenue facts.
         return {"status": "not_found", "ticker": symbol, "message": str(error)}
     return {

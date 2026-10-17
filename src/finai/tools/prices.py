@@ -342,7 +342,7 @@ def _fiscal_year_ends(symbol: str) -> tuple[list[dt.date], str | None]:
     try:
         filings = get_latest_10ks(symbol, _FISCAL_FILINGS)
     except LookupError:
-        # edgartools' CompanyNotFoundError and FilingNotFoundError.
+        # UnknownTickerError and FilingNotFoundError from fetch.resolve_ticker.
         return [], NO_10K
     return [dt.date.fromisoformat(str(f.period_of_report)) for f in filings], None
 

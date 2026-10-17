@@ -12,12 +12,16 @@ import os
 from pathlib import Path
 from typing import Any
 
+import httpx
+import pandas as pd
 import pytest
 
 from finai.config import settings
 from finai.ingestion import fetch
 from finai.ingestion.fetch import (
     FilingNotFoundError,
+    TickerResolution,
+    UnknownTickerError,
     UnsupportedFilingError,
     archive_filing,
     archive_paths,
@@ -85,6 +89,11 @@ def _stub_company(
             return _StubFilings(latest)
 
     monkeypatch.setattr(fetch, "Company", _StubCompany)
+    monkeypatch.setattr(
+        fetch,
+        "resolve_ticker",
+        lambda ticker: TickerResolution(ticker=ticker, status="ok", cik=320193),
+    )
     return captured
 
 
@@ -94,7 +103,7 @@ def test_get_latest_10k_excludes_amendments(monkeypatch: pytest.MonkeyPatch) -> 
     captured = _stub_company(monkeypatch, sentinel)
 
     assert get_latest_10k("AAPL") is sentinel
-    assert captured["ticker"] == "AAPL"
+    assert captured["ticker"] == 320193  # by the resolved CIK, not the ticker
     assert captured["form"] == "10-K"
     assert captured["amendments"] is False
 
@@ -126,6 +135,212 @@ def test_get_latest_10k_raises_when_no_filings(monkeypatch: pytest.MonkeyPatch) 
 
     with pytest.raises(FilingNotFoundError, match="NOFILINGS"):
         get_latest_10k("NOFILINGS")
+
+
+def test_get_latest_10ks_raises_for_an_unknown_ticker(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        fetch,
+        "resolve_ticker",
+        lambda t: TickerResolution(
+            ticker="ZZZZQ", status="unknown_ticker", message="nope"
+        ),
+    )
+    with pytest.raises(UnknownTickerError, match="nope"):
+        get_latest_10ks("ZZZZQ", 1)
+
+
+def test_get_latest_10ks_raises_with_the_reason_when_no_10k(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        fetch,
+        "resolve_ticker",
+        lambda t: TickerResolution(ticker="TSM", status="no_10k", message="files 20-F"),
+    )
+    with pytest.raises(FilingNotFoundError, match="20-F"):
+        get_latest_10ks("TSM", 1)
+
+
+# --- ticker resolution (1.3.26) ------------------------------------------------
+
+TODAY = dt.date(2026, 10, 17)
+
+
+class _FakeFiling:
+    def __init__(self, filed: str) -> None:
+        self.filing_date = dt.date.fromisoformat(filed)
+
+
+class _FakeFilings:
+    def __init__(self, forms: list[tuple[str, str]]) -> None:
+        self._forms = forms  # (form, filed), newest first
+
+    def __len__(self) -> int:
+        return len(self._forms)
+
+    def latest(self, n: int = 1) -> _FakeFiling:
+        return _FakeFiling(self._forms[0][1])
+
+    def to_pandas(self) -> pd.DataFrame:
+        return pd.DataFrame({"form": [f for f, _ in self._forms]})
+
+
+# CIK -> (name, filings), modelled on what EDGAR returned on 2026-10-17.
+_EDGAR = {
+    320193: ("Apple Inc.", [("10-K", "2025-10-31"), ("10-Q", "2026-08-01")]),
+    2115436: ("ExxonMobil Holdings Corp", [("8-K", "2026-10-16")]),
+    34088: ("EXXON MOBIL CORP", [("10-K", "2026-02-18"), ("10-Q", "2026-08-03")]),
+    1046179: ("TAIWAN SEMICONDUCTOR", [("6-K", "2026-10-01"), ("20-F", "2026-04-15")]),
+    884394: ("SPDR S&P 500 ETF TRUST", [("N-30B-2", "2026-06-01")]),
+    1174610: ("PROSHARES TRUST", []),
+    # A ticker reused by a new company; the old holder stopped filing in 2019.
+    900001: ("New Co Inc.", [("S-1", "2026-09-01")]),
+    900002: ("Old Co Corp", [("10-K", "2019-03-01")]),
+    # Delisted: only in the bundled table, last 10-K in 2021.
+    900003: ("Gone Corp", [("10-K", "2021-03-01")]),
+}
+
+
+class _FakeCompany:
+    def __init__(self, cik: int) -> None:
+        self.cik = cik
+        self.name, self._filings = _EDGAR[cik]
+
+    def get_filings(
+        self, form: str | None = None, amendments: bool = True
+    ) -> _FakeFilings:
+        rows = [r for r in self._filings if form is None or r[0] == form]
+        return _FakeFilings(rows)
+
+
+@pytest.fixture
+def edgar_tables(monkeypatch: pytest.MonkeyPatch) -> dict[str, dict]:
+    """Fake live and bundled ticker tables over the fake EDGAR above."""
+    tables = {
+        "live": {"AAPL": 320193, "BRK-B": 320193, "XOM": 2115436, "TSM": 1046179,
+                 "SPY": 884394, "OLD": 900001},
+        "bundled": {"AAPL": 320193, "XOM": 34088, "TSM": 1046179, "SPY": 884394,
+                    "OLD": 900002, "GONE": 900003},
+        "funds": {"FB": 1174610},
+    }  # fmt: skip
+    monkeypatch.setattr(fetch, "configure_edgar", lambda: None)
+    monkeypatch.setattr(fetch, "Company", _FakeCompany)
+    monkeypatch.setattr(fetch, "_live_ciks", lambda: tables["live"])
+    monkeypatch.setattr(
+        fetch, "_bundled_cik", lambda s: tables["bundled"].get(s.replace(".", "-"))
+    )
+    monkeypatch.setattr(fetch, "find_mutual_fund_cik", lambda s: tables["funds"].get(s))
+    return tables
+
+
+def _resolve(ticker: str) -> TickerResolution:
+    return fetch.resolve_ticker(ticker, today=TODAY)
+
+
+def test_resolves_a_10k_filer(edgar_tables) -> None:
+    r = _resolve(" aapl ")
+    assert (r.ticker, r.status, r.cik, r.current_cik) == ("AAPL", "ok", 320193, None)
+
+
+def test_share_class_dot_matches_secs_dash(edgar_tables) -> None:
+    assert _resolve("BRK.B").cik == 320193
+
+
+def test_reorganised_company_uses_its_recent_predecessor(edgar_tables) -> None:
+    r = _resolve("XOM")
+    assert (r.status, r.cik, r.current_cik) == ("ok", 34088, 2115436)
+    assert "ExxonMobil Holdings Corp" in r.message
+
+
+def test_reused_ticker_does_not_fall_back_to_a_dead_company(edgar_tables) -> None:
+    r = _resolve("OLD")
+    assert (r.status, r.cik) == ("no_10k", 900001)
+
+
+def test_delisted_ticker_only_in_bundled_table_needs_a_recent_10k(edgar_tables) -> None:
+    assert _resolve("GONE").status == "no_10k"
+
+
+def test_without_the_live_table_the_bundled_cik_is_trusted(
+    edgar_tables, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(fetch, "_live_ciks", lambda: None)
+    assert (_resolve("GONE").status, _resolve("XOM").cik) == ("ok", 34088)
+
+
+def test_foreign_issuer_names_its_annual_form(edgar_tables) -> None:
+    r = _resolve("TSM")
+    assert r.status == "no_10k"
+    assert "Form 20-F" in r.message
+
+
+def test_etf_has_no_10k(edgar_tables) -> None:
+    r = _resolve("SPY")
+    assert r.status == "no_10k"
+    assert "no 10-K on EDGAR" in r.message
+
+
+def test_fund_ticker_is_reported_as_a_fund(edgar_tables) -> None:
+    # FB is no longer Meta: SEC lists it only as a ProShares fund ticker.
+    r = _resolve("FB")
+    assert r.status == "no_10k"
+    assert "mutual fund or ETF (PROSHARES TRUST)" in r.message
+
+
+def test_unknown_ticker(edgar_tables) -> None:
+    r = _resolve("ZZZZQ")
+    assert (r.status, r.cik) == ("unknown_ticker", None)
+
+
+def test_live_table_is_cached_for_a_day(monkeypatch: pytest.MonkeyPatch) -> None:
+    downloads = []
+    clock = [1000.0]
+
+    def download(url: str) -> dict:
+        downloads.append(url)
+        return {"0": {"cik_str": 320193, "ticker": "aapl", "title": "Apple Inc."}}
+
+    monkeypatch.setattr(fetch, "download_json", download)
+    monkeypatch.setattr(fetch.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(fetch, "_sec_tickers", None)
+    assert fetch._live_ciks() == {"AAPL": 320193}
+    fetch._live_ciks()
+    assert len(downloads) == 1
+    clock[0] += fetch.SEC_TICKERS_TTL_S + 1
+    fetch._live_ciks()
+    assert len(downloads) == 2
+
+
+def test_live_table_failure_keeps_the_last_copy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail(url: str) -> dict:
+        raise httpx.ConnectError("SEC down")
+
+    monkeypatch.setattr(fetch, "download_json", fail)
+    monkeypatch.setattr(fetch, "_sec_tickers", None)
+    assert fetch._live_ciks() is None
+    monkeypatch.setattr(fetch, "_sec_tickers", (-1e12, {"AAPL": 320193}))
+    assert fetch._live_ciks() == {"AAPL": 320193}
+
+
+@pytest.mark.network
+@pytest.mark.parametrize(
+    ("ticker", "status", "cik"),
+    [
+        ("AAPL", "ok", 320193),
+        ("BRK.B", "ok", 1067983),
+        ("XOM", "ok", 34088),  # predecessor of ExxonMobil Holdings Corp
+        ("TSM", "no_10k", 1046179),
+        ("SPY", "no_10k", 884394),
+        ("ZZZZQ", "unknown_ticker", None),
+    ],
+)
+def test_resolve_against_live_edgar(ticker: str, status: str, cik: int | None) -> None:
+    r = fetch.resolve_ticker(ticker)
+    assert (r.status, r.cik) == (status, cik)
 
 
 @pytest.mark.network

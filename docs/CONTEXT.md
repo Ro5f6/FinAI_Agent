@@ -19,7 +19,7 @@ runs a question on a checkpointed thread; memory verified in process (1.3.15)
 and stored in Redis, surviving a process restart (1.3.16-1.3.17). **1.3.18-1.3.21
 (the test prompts) need Claude, so wait for Anthropic credits.** 1.3.22 done:
 `tools/financials.py` (headline figures and revenue breakdowns); 1.3.23 done
-(`tools/trends.py`); 1.3.24 done (`tools/prices.py`); 1.3.25 done: `get_financial_history` and `get_price_history` are agent tools, five in all (D-036). **Next: 1.3.26** (on-demand ingestion). Step 1.3's
+(`tools/trends.py`); 1.3.24 done (`tools/prices.py`); 1.3.25 done: `get_financial_history` and `get_price_history` are agent tools, five in all (D-036). 1.3.26 done: tickers resolve to a 10-K filer before anything is fetched or queued (`fetch.resolve_ticker`, D-037). **Next: 1.3.27** (queue missing filings in a Redis Stream). Step 1.3's
 Done when: memory survives a restart (met); prompt 1.3.20 calls both tools and
 the answer cites 10-K sections (needs Claude). Running it with Claude waits for
 Anthropic credits. 1.3.7's live call (`-m anthropic`) waits for Anthropic credits. Added outside the original order: 1.2.21, reranking.
@@ -336,6 +336,29 @@ those 9 filings (FY2023-2026), 487 points.
 - **`/stock/candle` returns 403 on the free key**: price history is paid-only,
   so Alpaca stays (D-013, 1.3.24).
 - A quote takes ~200-360 ms (three calls); cached it takes 0.01 ms.
+
+## Verified ticker resolution (edgartools 5.60.0, 2026-10-17)
+
+- `Company(ticker)` calls `find_cik`: `find_company_cik` (bundled
+  `company_tickers.parquet`, then SEC's live table only for tickers missing
+  from it), then `find_mutual_fund_cik`. Lookup is case-insensitive; `.` and
+  `-` are the same (`BRK.B`, `BRK-B`); `BRK/B` and `" NVDA"` (whitespace) are
+  not found. Unknown: `CompanyNotFoundError` (a `LookupError`).
+- Bundled table vs SEC live `company_tickers.json` (426 ms, 851 KB, 10,443
+  tickers): 862 only live, 784 only bundled (mostly warrants, units, OTC),
+  10 with different CIKs. Of those, XOM, NVRI, XPRO, CBAT, CLBK and GORO
+  moved to a new CIK with no 10-K, while the old CIK filed one in Feb-Mar
+  2026; XRPN/XRPNW are a de-SPAC (the SPAC filed the only 10-K); UROY's new
+  CIK has its 10-K; REAX has none under either.
+- XOM: live CIK 2115436 ExxonMobil Holdings Corp (8-K, DEFA14A, no 10-K);
+  CIK 34088 Exxon Mobil Corp holds 31 10-Ks, last filed 2026-02-18.
+- Fund tickers resolve through the mutual-fund list: `FB` is ProShares
+  Trust (CIK 1174610), not Meta. ETFs (SPY, QQQ) are in the company table
+  with no 10-K or 20-F; VFIAX only in the fund list.
+- 20-F filers (TSM, SHEL, BABA, ARM, KLAR) have 0 10-Ks; recent IPOs (CRCL,
+  FIG, CRWV) have their first. Old tickers (TWTR, SQ) aren't in either table.
+- `resolve_ticker` takes 200-800 ms live (two `Company` loads at most); the
+  XOM 10-K fetch after it took 366 ms.
 
 ## Verified Alpaca behaviour (paper-account key, 2026-10-15)
 

@@ -114,7 +114,7 @@ def main(argv: list[str] | None = None) -> int:
         try:
             results = ingest_ticker(ticker, args.years)
         except LookupError as error:
-            # edgartools' CompanyNotFoundError and our FilingNotFoundError are
+            # UnknownTickerError and FilingNotFoundError (fetch.resolve_ticker) are
             # both LookupErrors: an unknown ticker, or a company with no 10-K.
             # The other tickers still run.
             print(f"error: {error}", file=sys.stderr)
