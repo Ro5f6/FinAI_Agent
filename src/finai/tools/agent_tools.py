@@ -69,6 +69,8 @@ def query_company_10k(
     section: Section | None = None,
     fiscal_year: int | None = None,
     k: int = 5,
+    *,
+    config: RunnableConfig,
 ) -> dict[str, Any]:
     """Search a company's annual report (10-K) for passages answering a question.
 
@@ -80,6 +82,7 @@ def query_company_10k(
     "failed", and message says when to expect it. "no_10k" means the company
     files no 10-K (a foreign filer on Form 20-F, an ETF or a fund) and
     "unknown_ticker" that SEC doesn't know the ticker; message says which.
+    "limit_reached" means no more new companies can be fetched today.
     "year_not_indexed" means that year isn't stored. Figures in passages are
     as printed in the filing; tables give the unit and year in their caption
     and headings.
@@ -94,8 +97,13 @@ def query_company_10k(
             2026 ended in January 2026.
         k: Number of passages, 1 to 20.
     """
+    # The user is counted against the daily limit on new companies (1.3.29);
+    # it comes from the run's config, never from the model.
+    user_id = (config.get("configurable") or {}).get("user_id")
     try:
-        result = filings.query_company_10k(ticker, question, section, fiscal_year, k)
+        result = filings.query_company_10k(
+            ticker, question, section, fiscal_year, k, user_id=user_id
+        )
     except ValueError as error:
         return {"status": "invalid_arguments", "message": str(error)}
     return result.model_dump(mode="json")

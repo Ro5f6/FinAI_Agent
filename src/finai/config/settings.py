@@ -138,6 +138,19 @@ class Settings(BaseSettings):
             "a failed fetch is retried at most once per this period."
         ),
     )
+    INGEST_USER_DAILY_LIMIT: int = Field(
+        default=5,
+        ge=0,
+        description="New companies one user can have fetched per UTC day (on-demand ingestion).",
+    )
+    INGEST_DAILY_LIMIT: int = Field(
+        default=50,
+        ge=0,
+        description=(
+            "New companies fetched per UTC day across all users: caps SEC requests "
+            "and embedding cost."
+        ),
+    )
     MAX_AGENT_LOOPS: int = Field(
         default=6,
         ge=1,

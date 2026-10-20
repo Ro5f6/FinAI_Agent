@@ -149,7 +149,7 @@ def _passage(ticker: str, year: int, index: int) -> TenKPassage:
 def stub_search(monkeypatch: pytest.MonkeyPatch) -> None:
     """query_company_10k returns two passages per indexed ticker; TSLA isn't indexed."""
 
-    def fake(ticker, question, section, fiscal_year, k):
+    def fake(ticker, question, section, fiscal_year, k, *, user_id=None):
         if ticker == "TSLA":
             return TenKSearchResult(
                 status="not_indexed",

@@ -195,6 +195,7 @@ def live(monkeypatch: pytest.MonkeyPatch) -> redis.Redis:
     client = redis.Redis.from_url(settings.REDIS_URL, decode_responses=True)
     monkeypatch.setattr(jobs, "STREAM", STREAM)
     monkeypatch.setattr(jobs, "STATUS_PREFIX", "test:ingest:status:")
+    monkeypatch.setattr(jobs, "COUNT_PREFIX", "test:ingest:count:")
     monkeypatch.setattr(jobs, "redis_client", lambda: client)
     monkeypatch.setattr(
         jobs,
@@ -203,16 +204,21 @@ def live(monkeypatch: pytest.MonkeyPatch) -> redis.Redis:
     )
     monkeypatch.setattr(worker, "_is_indexed", lambda t: False)
     monkeypatch.setattr(worker, "ingest_ticker", lambda t, y: [_result(t)])
-    keys = [STREAM] + [f"test:ingest:status:{t}" for t in ("PLTR", "CRCL", "BAD")]
-    client.delete(*keys)
+
+    def clean() -> None:
+        keys = list(client.scan_iter("test:ingest:*"))
+        if keys:
+            client.delete(*keys)
+
+    clean()
     yield client
-    client.delete(*keys)
+    clean()
 
 
 @pytest.mark.redis
 def test_live_worker_drains_the_queue(live: redis.Redis) -> None:
     for ticker in ("PLTR", "CRCL", "PLTR"):  # PLTR twice: queued once
-        jobs.request_ingestion(ticker)
+        jobs.request_ingestion(ticker, user_id="alice")
 
     assert worker.run(once=True, client=live) == 2
 
@@ -229,10 +235,10 @@ def test_live_failure_is_reported_to_the_next_question(
         raise RuntimeError("parse error")
 
     monkeypatch.setattr(worker, "ingest_ticker", broken)
-    jobs.request_ingestion("BAD")
+    jobs.request_ingestion("BAD", user_id="alice")
     worker.run(once=True, client=live)
 
-    assert jobs.request_ingestion("BAD").status == "failed"
+    assert jobs.request_ingestion("BAD", user_id="alice").status == "failed"
     assert 0 < live.ttl("test:ingest:status:BAD") <= TTL_S
     assert live.xlen(STREAM) == 1  # not queued again while failed
 
@@ -243,7 +249,7 @@ def test_live_job_of_a_dead_worker_is_claimed(
 ) -> None:
     monkeypatch.setattr(worker, "CLAIM_IDLE_MS", 200)
     worker.ensure_group(live)
-    jobs.request_ingestion("PLTR")
+    jobs.request_ingestion("PLTR", user_id="alice")
     # A worker reads the job, then dies without acknowledging it.
     live.xreadgroup(worker.GROUP, "dead-worker", {STREAM: ">"}, count=1)
     time.sleep(0.3)

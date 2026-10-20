@@ -31,6 +31,7 @@ Status = Literal[
     "failed",
     "no_10k",
     "unknown_ticker",
+    "limit_reached",
     "not_indexed",
 ]
 
@@ -58,8 +59,8 @@ class TenKSearchResult(BaseModel):
     """Passages for one company and year, or why there are none.
 
     With no 10-K of the company stored, ``status`` is the ingestion request's
-    (queued, ingesting, failed, no_10k, unknown_ticker, or not_indexed if it
-    couldn't be queued) and ``message`` explains it. "year_not_indexed" means
+    (queued, ingesting, failed, no_10k, unknown_ticker, limit_reached, or
+    not_indexed if it couldn't be queued) and ``message`` explains it. "year_not_indexed" means
     the requested year isn't stored; ``available_years`` says which are.
     """
 
@@ -80,11 +81,15 @@ def query_company_10k(
     section: str | None = None,
     fiscal_year: int | None = None,
     k: int = 5,
+    *,
+    user_id: str | None = None,
 ) -> TenKSearchResult:
     """Find the passages of a company's 10-K most relevant to ``question``.
 
     ``section`` is one of "Item 1", "Item 1A", "Item 7", "Item 7A", "Item 8".
-    Without ``fiscal_year``, the latest indexed year is searched.
+    Without ``fiscal_year``, the latest indexed year is searched. A company
+    not indexed is queued for ``user_id``, counted against their daily limit;
+    without a user nothing is queued.
 
     Raises:
         ValueError: unknown section, or ``k`` outside 1..20.
@@ -100,7 +105,16 @@ def query_company_10k(
     client = qdrant_client()
     years = indexed_years(client, symbol)
     if not years:
-        request = request_ingestion(symbol)
+        if user_id is None:
+            return TenKSearchResult(
+                status="not_indexed",
+                ticker=symbol,
+                fiscal_year=fiscal_year,
+                section=section,
+                available_years=[],
+                message=f"{symbol}'s 10-K isn't stored; fetching it needs a signed-in user.",
+            )
+        request = request_ingestion(symbol, user_id=user_id)
         return TenKSearchResult(
             status="not_indexed" if request.status == "unavailable" else request.status,
             ticker=symbol,

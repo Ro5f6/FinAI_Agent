@@ -112,8 +112,8 @@ def test_missing_year_says_which_years_exist(index: QdrantClient) -> None:
 
 
 def _ingestion(status: str, message: str = "msg"):
-    def request(ticker: str) -> IngestionRequest:
-        requested.append(ticker)
+    def request(ticker: str, *, user_id: str) -> IngestionRequest:
+        requested.append((ticker, user_id))
         return IngestionRequest(ticker=ticker, status=status, message=message)
 
     requested: list[str] = []
@@ -122,7 +122,8 @@ def _ingestion(status: str, message: str = "msg"):
 
 
 @pytest.mark.parametrize(
-    "status", ["queued", "ingesting", "failed", "no_10k", "unknown_ticker"]
+    "status",
+    ["queued", "ingesting", "failed", "no_10k", "unknown_ticker", "limit_reached"],
 )
 def test_unindexed_company_is_queued_and_says_so(
     index: QdrantClient, monkeypatch: pytest.MonkeyPatch, status: str
@@ -130,9 +131,9 @@ def test_unindexed_company_is_queued_and_says_so(
     request = _ingestion(status, "TSLA's 10-K is queued")
     monkeypatch.setattr(filings, "request_ingestion", request)
 
-    result = query_company_10k("tsla", "supply risks")
+    result = query_company_10k("tsla", "supply risks", user_id="alice")
 
-    assert request.requested == ["TSLA"]
+    assert request.requested == [("TSLA", "alice")]
     assert result.status == status
     assert result.message == "TSLA's 10-K is queued"
     assert result.available_years == []
@@ -145,8 +146,19 @@ def test_unindexed_company_when_the_queue_is_down(
     monkeypatch.setattr(
         filings, "request_ingestion", _ingestion("unavailable", "Redis down")
     )
-    result = query_company_10k("TSLA", "supply risks")
+    result = query_company_10k("TSLA", "supply risks", user_id="alice")
     assert (result.status, result.message) == ("not_indexed", "Redis down")
+
+
+def test_unindexed_company_without_a_user_is_not_queued(
+    index: QdrantClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    request = _ingestion("queued")
+    monkeypatch.setattr(filings, "request_ingestion", request)
+    result = query_company_10k("TSLA", "supply risks")
+    assert result.status == "not_indexed"
+    assert "signed-in user" in result.message
+    assert request.requested == []
 
 
 def test_indexed_company_is_not_queued(
@@ -154,8 +166,8 @@ def test_indexed_company_is_not_queued(
 ) -> None:
     request = _ingestion("queued")
     monkeypatch.setattr(filings, "request_ingestion", request)
-    query_company_10k("AAPL", "supply risks", fiscal_year=2019)
-    query_company_10k("AAPL", "supply risks")
+    query_company_10k("AAPL", "supply risks", fiscal_year=2019, user_id="alice")
+    query_company_10k("AAPL", "supply risks", user_id="alice")
     assert request.requested == []
 
 

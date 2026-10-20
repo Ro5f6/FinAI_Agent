@@ -53,6 +53,21 @@ def test_no_tool_lets_the_model_choose_the_user(tool) -> None:
     assert "config" not in properties
 
 
+def test_10k_search_without_a_user_passes_none(monkeypatch: pytest.MonkeyPatch) -> None:
+    users = []
+
+    def fake(*args, user_id):
+        users.append(user_id)
+        return TenKSearchResult(
+            status="not_indexed", ticker="PLTR", fiscal_year=None, section=None,
+            available_years=[],
+        )  # fmt: skip
+
+    monkeypatch.setattr(filings, "query_company_10k", fake)
+    query_company_10k.invoke({"ticker": "PLTR", "question": "risks"})
+    assert users == [None]
+
+
 def test_required_arguments() -> None:
     assert _schema(get_live_market_data)["required"] == ["ticker"]
     assert _schema(query_company_10k)["required"] == ["ticker", "question"]
@@ -120,8 +135,8 @@ def test_market_data_failures_are_returned_not_raised(
 def test_10k_arguments_are_passed_through(monkeypatch: pytest.MonkeyPatch) -> None:
     calls = []
 
-    def fake(ticker, question, section, fiscal_year, k):
-        calls.append((ticker, question, section, fiscal_year, k))
+    def fake(ticker, question, section, fiscal_year, k, *, user_id):
+        calls.append((ticker, question, section, fiscal_year, k, user_id))
         return TenKSearchResult(
             status="ok",
             ticker="AAPL",
@@ -138,10 +153,13 @@ def test_10k_arguments_are_passed_through(monkeypatch: pytest.MonkeyPatch) -> No
             "question": "risks",
             "section": "Item 1A",
             "fiscal_year": 2024,
-        }
+            # Sent by the model: must not become the user.
+            "user_id": "mallory",
+        },
+        config={"configurable": {"user_id": "alice"}},
     )
 
-    assert calls == [("AAPL", "risks", "Item 1A", 2024, 5)]
+    assert calls == [("AAPL", "risks", "Item 1A", 2024, 5, "alice")]
     assert result["status"] == "ok"
     assert result["available_years"] == [2025, 2024]
 

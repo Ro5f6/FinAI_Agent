@@ -19,7 +19,7 @@ runs a question on a checkpointed thread; memory verified in process (1.3.15)
 and stored in Redis, surviving a process restart (1.3.16-1.3.17). **1.3.18-1.3.21
 (the test prompts) need Claude, so wait for Anthropic credits.** 1.3.22 done:
 `tools/financials.py` (headline figures and revenue breakdowns); 1.3.23 done
-(`tools/trends.py`); 1.3.24 done (`tools/prices.py`); 1.3.25 done: `get_financial_history` and `get_price_history` are agent tools, five in all (D-036). 1.3.26 done: tickers resolve to a 10-K filer before anything is fetched or queued (`fetch.resolve_ticker`, D-037). 1.3.27 done: a 10-K search for a company not indexed queues it once (`ingestion/jobs.py`, D-038). 1.3.28 done: `python -m finai.ingestion.worker` ingests queued companies (D-039); CRCL went from queued to searchable in 7.7 s. **Next: 1.3.29** (per-user and total limits on new tickers). Step 1.3's
+(`tools/trends.py`); 1.3.24 done (`tools/prices.py`); 1.3.25 done: `get_financial_history` and `get_price_history` are agent tools, five in all (D-036). 1.3.26 done: tickers resolve to a 10-K filer before anything is fetched or queued (`fetch.resolve_ticker`, D-037). 1.3.27 done: a 10-K search for a company not indexed queues it once (`ingestion/jobs.py`, D-038). 1.3.28 done: `python -m finai.ingestion.worker` ingests queued companies (D-039); CRCL went from queued to searchable in 7.7 s. 1.3.29 done: new companies are limited to 5 per user and 50 in total per UTC day, checked in the queue script (D-040). **Next: 1.3.30** (tests: concurrency, unknown tickers, worker, limits, one real ticker end to end). Step 1.3's
 Done when: memory survives a restart (met); prompt 1.3.20 calls both tools and
 the answer cites 10-K sections (needs Claude). Running it with Claude waits for
 Anthropic credits. 1.3.7's live call (`-m anthropic`) waits for Anthropic credits. Added outside the original order: 1.2.21, reranking.
@@ -348,6 +348,13 @@ those 9 filings (FY2023-2026), 487 points.
 - `set(key, value, keepttl=True)` changes a value without resetting its TTL
   (the worker's status updates).
 - 20 threads calling `request_ingestion` at once produced one stream entry.
+- A Lua script can return a table: `return {1, id}` arrives in redis-py as
+  `[1, '1792...-0']`, `{0, 'user_limit'}` as `[0, 'user_limit']`.
+- A tool parameter `*, config: RunnableConfig` (keyword-only, after
+  defaulted ones) is injected and hidden from the model's schema like a
+  positional one; `user_id`/`config` sent as tool arguments are ignored.
+- Deleting the stream key also deletes its consumer group; the worker
+  recreates it at start and on `NOGROUP`.
 - Consumer group: `xgroup_create(stream, group, id="0", mkstream=True)`;
   repeating it raises `ResponseError` "BUSYGROUP Consumer Group name already
   exists". `xreadgroup(group, consumer, {stream: ">"}, count=1, block=ms)`

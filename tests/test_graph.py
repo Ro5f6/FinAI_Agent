@@ -159,7 +159,7 @@ def stub_tools(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     monkeypatch.setattr(market_data, "get_live_market_data", lambda ticker: quote)
 
-    def search(ticker, question, section, fiscal_year, k):
+    def search(ticker, question, section, fiscal_year, k, *, user_id=None):
         passage = TenKPassage(
             text="The possibility of additional export controls has negatively impacted demand.",
             ticker=ticker,
