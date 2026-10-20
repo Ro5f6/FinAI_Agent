@@ -19,7 +19,7 @@ runs a question on a checkpointed thread; memory verified in process (1.3.15)
 and stored in Redis, surviving a process restart (1.3.16-1.3.17). **1.3.18-1.3.21
 (the test prompts) need Claude, so wait for Anthropic credits.** 1.3.22 done:
 `tools/financials.py` (headline figures and revenue breakdowns); 1.3.23 done
-(`tools/trends.py`); 1.3.24 done (`tools/prices.py`); 1.3.25 done: `get_financial_history` and `get_price_history` are agent tools, five in all (D-036). 1.3.26 done: tickers resolve to a 10-K filer before anything is fetched or queued (`fetch.resolve_ticker`, D-037). 1.3.27 done: a 10-K search for a company not indexed queues it once (`ingestion/jobs.py`, D-038). **Next: 1.3.28** (the worker that reads the queue). Step 1.3's
+(`tools/trends.py`); 1.3.24 done (`tools/prices.py`); 1.3.25 done: `get_financial_history` and `get_price_history` are agent tools, five in all (D-036). 1.3.26 done: tickers resolve to a 10-K filer before anything is fetched or queued (`fetch.resolve_ticker`, D-037). 1.3.27 done: a 10-K search for a company not indexed queues it once (`ingestion/jobs.py`, D-038). 1.3.28 done: `python -m finai.ingestion.worker` ingests queued companies (D-039); CRCL went from queued to searchable in 7.7 s. **Next: 1.3.29** (per-user and total limits on new tickers). Step 1.3's
 Done when: memory survives a restart (met); prompt 1.3.20 calls both tools and
 the answer cites 10-K sections (needs Claude). Running it with Claude waits for
 Anthropic credits. 1.3.7's live call (`-m anthropic`) waits for Anthropic credits. Added outside the original order: 1.2.21, reranking.
@@ -348,6 +348,20 @@ those 9 filings (FY2023-2026), 487 points.
 - `set(key, value, keepttl=True)` changes a value without resetting its TTL
   (the worker's status updates).
 - 20 threads calling `request_ingestion` at once produced one stream entry.
+- Consumer group: `xgroup_create(stream, group, id="0", mkstream=True)`;
+  repeating it raises `ResponseError` "BUSYGROUP Consumer Group name already
+  exists". `xreadgroup(group, consumer, {stream: ">"}, count=1, block=ms)`
+  returns `[[stream, [(id, fields)]]]`, or `[]` when nothing arrives.
+- `xautoclaim(stream, group, consumer, min_idle_time=ms, count=1)` returns
+  `[next_start, [(id, fields)], [deleted_ids]]`; entries idle less than
+  `min_idle_time` aren't claimed. A claim increments `times_delivered` in
+  `xpending_range(stream, group, id, id, 1)` (1 -> 2).
+- `xreadgroup(..., claim_min_idle_time=ms)` (Redis 8 `CLAIM`) also works on
+  8.10.2: idle pending entries first, as `(id, fields, idle_ms, deliveries)`,
+  then new ones as `(id, fields, 0, 0)`. Not used: see D-039.
+- Worker run on CRCL (one 10-K): 153 chunks, ingest 5.9 s, process 7.7 s.
+  The Voyage tokenizer is downloaded from Hugging Face on first use, so a
+  worker pod needs that host too.
 - `redis` was only a transitive dependency (of langgraph-checkpoint-redis);
   it is now a direct one.
 - The shell exports `EMBEDDING_MODEL=BAAI/bge-small-en-v1.5`, which overrides

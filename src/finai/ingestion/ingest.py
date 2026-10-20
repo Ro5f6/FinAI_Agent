@@ -27,6 +27,9 @@ from finai.ingestion.store import (
     upsert_filing,
 )
 
+# 10-Ks per company when the CLI or the worker (1.3.28) isn't told otherwise.
+DEFAULT_YEARS = 1
+
 
 class IngestResult(NamedTuple):
     """What one filing's ingest produced."""
@@ -82,7 +85,7 @@ def ingest_filing(filing: EntityFiling, ticker: str) -> IngestResult:
     )
 
 
-def ingest_ticker(ticker: str, years: int = 1) -> list[IngestResult]:
+def ingest_ticker(ticker: str, years: int = DEFAULT_YEARS) -> list[IngestResult]:
     """Ingest the latest ``years`` 10-Ks for ``ticker``, newest first.
 
     Each year has its own accession, so its chunks get their own IDs and the
@@ -102,8 +105,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--years",
         type=int,
-        default=1,
-        help="10-Ks per company, newest first (default 1)",
+        default=DEFAULT_YEARS,
+        help=f"10-Ks per company, newest first (default {DEFAULT_YEARS})",
     )
     args = parser.parse_args(argv)
     if args.years < 1:
