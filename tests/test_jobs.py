@@ -348,3 +348,20 @@ def test_live_total_limit_spans_users(
     assert request_ingestion("BBB", user_id="bob").status == "queued"
     assert request_ingestion("CCC", user_id="carol").status == "limit_reached"
     assert live_redis.xlen("test:ingest:jobs") == 2
+
+
+@pytest.mark.redis
+@pytest.mark.network
+@pytest.mark.parametrize("ticker", ["ZZZZQ", "TSM", "SPY"])
+def test_live_tickers_without_a_10k_are_not_queued(
+    live_redis: redis.Redis, monkeypatch: pytest.MonkeyPatch, ticker: str
+) -> None:
+    """With the real SEC lookup: unknown, a 20-F filer, an ETF."""
+    from finai.ingestion.fetch import resolve_ticker
+
+    monkeypatch.setattr(jobs, "resolve_ticker", resolve_ticker)
+    result = request_ingestion(ticker, user_id="alice")
+
+    assert result.status in ("unknown_ticker", "no_10k")
+    assert not live_redis.exists("test:ingest:jobs")
+    assert not list(live_redis.scan_iter("test:ingest:count:*"))
