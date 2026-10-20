@@ -126,6 +126,59 @@ def test_years_are_passed_through(fake: _FakeRedis) -> None:
     assert calls == [3]
 
 
+def test_blocking_read_ends_before_the_socket_times_out() -> None:
+    """A read blocked as long as the socket timeout raises TimeoutError."""
+    from redis._defaults import DEFAULT_SOCKET_TIMEOUT
+
+    assert worker.BLOCK_MS / 1000 < DEFAULT_SOCKET_TIMEOUT
+
+
+class _FlakyRedis:
+    """Fails the first read like a restarting Redis, then has no jobs."""
+
+    def __init__(self, error: Exception) -> None:
+        self.error = error
+        self.reads = 0
+        self.groups_created = 0
+
+    def xgroup_create(self, *args, **kwargs) -> bool:
+        self.groups_created += 1
+        return True
+
+    def xautoclaim(self, *args, **kwargs):
+        self.reads += 1
+        if self.reads == 1:
+            raise self.error
+        return ["0-0", [], []]
+
+    def xreadgroup(self, *args, **kwargs):
+        return []
+
+
+@pytest.mark.parametrize(
+    "error", [redis.ConnectionError("refused"), redis.TimeoutError("timed out")]
+)
+def test_worker_survives_redis_dropping(
+    monkeypatch: pytest.MonkeyPatch, error: Exception
+) -> None:
+    monkeypatch.setattr(worker, "RETRY_S", 0)
+    client = _FlakyRedis(error)
+    assert worker.run(once=True, client=client) == 0
+    assert client.reads == 2  # retried, then found the queue empty
+
+
+def test_worker_recreates_a_lost_group(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _FlakyRedis(redis.ResponseError("NOGROUP No such key or consumer group"))
+    worker.run(once=True, client=client)
+    assert client.groups_created == 2  # at start, and after NOGROUP
+
+
+def test_other_redis_errors_are_raised() -> None:
+    client = _FlakyRedis(redis.ResponseError("WRONGTYPE"))
+    with pytest.raises(redis.ResponseError, match="WRONGTYPE"):
+        worker.run(once=True, client=client)
+
+
 def test_cli_rejects_unknown_options() -> None:
     with pytest.raises(SystemExit):
         worker.main(["--bogus"])
@@ -200,6 +253,15 @@ def test_live_job_of_a_dead_worker_is_claimed(
     assert (job.ticker, job.deliveries) == ("PLTR", 2)
     assert worker.process(live, job) == "done"
     assert live.xpending(STREAM, worker.GROUP)["pending"] == 0
+
+
+@pytest.mark.redis
+def test_live_full_block_on_an_empty_queue(live: redis.Redis) -> None:
+    """The long-running mode's read, which crashed with a 5 s block."""
+    worker.ensure_group(live)
+    started = time.monotonic()
+    assert worker.next_job(live, "idle-worker") is None
+    assert time.monotonic() - started >= worker.BLOCK_MS / 1000 * 0.9
 
 
 @pytest.mark.redis

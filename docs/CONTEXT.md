@@ -359,6 +359,12 @@ those 9 filings (FY2023-2026), 487 points.
 - `xreadgroup(..., claim_min_idle_time=ms)` (Redis 8 `CLAIM`) also works on
   8.10.2: idle pending entries first, as `(id, fields, idle_ms, deliveries)`,
   then new ones as `(id, fields, 0, 0)`. Not used: see D-039.
+- **redis-py 8 sets a 5 s socket timeout by default**
+  (`redis/_defaults.py: DEFAULT_SOCKET_TIMEOUT = 5`; `connection_kwargs`
+  shows None because the default is applied in `Connection`). An
+  `XREADGROUP ... BLOCK 5000` on an empty stream therefore raised
+  `redis.exceptions.TimeoutError: Timeout reading from socket`. The worker
+  blocks 2 s; a test keeps the block under the default timeout.
 - Worker run on CRCL (one 10-K): 153 chunks, ingest 5.9 s, process 7.7 s.
   The Voyage tokenizer is downloaded from Hugging Face on first use, so a
   worker pod needs that host too.

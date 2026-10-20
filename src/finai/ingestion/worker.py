@@ -34,6 +34,7 @@ import os
 import signal
 import socket
 import sys
+import time
 from collections.abc import Callable
 from typing import NamedTuple
 
@@ -48,7 +49,12 @@ log = logging.getLogger(__name__)
 
 GROUP = "ingest-workers"
 # How long a read waits for a job; a stop request is noticed within this.
-BLOCK_MS = 5_000
+# It must stay under the client's socket timeout, 5 s by default in
+# redis-py 8: a 5 s block on a 5 s socket timeout raised TimeoutError
+# whenever the queue stayed empty.
+BLOCK_MS = 2_000
+# Pause before retrying after Redis drops or restarts.
+RETRY_S = 2.0
 # A job unacknowledged this long belongs to a dead worker. Ingesting one
 # 10-K takes 25 s to a few minutes; 10 minutes leaves a wide margin.
 CLAIM_IDLE_MS = 10 * 60 * 1000
@@ -161,13 +167,25 @@ def run(
     log.info("worker %s reading %s", consumer, jobs.STREAM)
     processed = 0
     while not should_stop():
-        job = next_job(client, consumer, block_ms=100 if once else BLOCK_MS)
-        if job is None:
-            if once:
-                break
-            continue
-        log.info("%s: %s", job.ticker, process(client, job, years))
-        processed += 1
+        try:
+            job = next_job(client, consumer, block_ms=100 if once else BLOCK_MS)
+            if job is None:
+                if once:
+                    break
+                continue
+            log.info("%s: %s", job.ticker, process(client, job, years))
+            processed += 1
+        except (redis.ConnectionError, redis.TimeoutError) as error:
+            # Redis restarting or the network dropping shouldn't end the
+            # worker. A job cut off mid-way stays pending and is claimed later.
+            log.warning("Redis unavailable, retrying in %.0f s: %s", RETRY_S, error)
+            time.sleep(RETRY_S)
+        except redis.ResponseError as error:
+            # A Redis restarted without its data has lost the group.
+            if "NOGROUP" not in str(error):
+                raise
+            log.warning("consumer group missing, recreating it")
+            ensure_group(client)
     return processed
 
 
