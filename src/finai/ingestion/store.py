@@ -9,6 +9,7 @@ from functools import lru_cache
 from typing import NamedTuple
 
 from qdrant_client import QdrantClient, models
+from qdrant_client.http.exceptions import UnexpectedResponse
 
 from finai.config import settings
 from finai.ingestion import embed
@@ -244,9 +245,25 @@ def indexed_years(
 
     Uses Qdrant's facet count over the integer index, so nothing is scanned.
     Facets come back ordered by count, not value, hence the sort.
+
+    A collection that doesn't exist yet, as on a fresh deployment before the
+    first ingest, has no years: the server answers 404 and the in-memory
+    client raises ValueError, so either is checked against
+    ``collection_exists`` (1.5 ms) before being treated as empty.
     """
-    response = client.facet(
-        collection_name=name or settings.COLLECTION_NAME,
+    name = name or settings.COLLECTION_NAME
+    try:
+        response = _facet_years(client, ticker, name)
+    except (UnexpectedResponse, ValueError):
+        if not client.collection_exists(name):
+            return []
+        raise
+    return sorted((int(hit.value) for hit in response.hits), reverse=True)
+
+
+def _facet_years(client: QdrantClient, ticker: str, name: str) -> models.FacetResponse:
+    return client.facet(
+        collection_name=name,
         key="fiscal_year",
         facet_filter=models.Filter(
             must=[
@@ -258,4 +275,3 @@ def indexed_years(
         limit=100,
         exact=True,
     )
-    return sorted((int(hit.value) for hit in response.hits), reverse=True)

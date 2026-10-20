@@ -486,3 +486,9 @@ def test_collection_on_the_compose_qdrant() -> None:
     ensure_payload_indexes(client)
     schema = client.get_collection(settings.COLLECTION_NAME).payload_schema
     assert {f: s.data_type for f, s in schema.items()} == PAYLOAD_INDEXES
+
+
+def test_indexed_years_of_a_missing_collection_is_empty() -> None:
+    """A fresh deployment before the first ingest: no collection yet. The
+    first question must queue the company, not fail (found by 1.3.30)."""
+    assert indexed_years(QdrantClient(":memory:"), "AAPL", name="never_created") == []
