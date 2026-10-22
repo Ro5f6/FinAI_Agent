@@ -166,6 +166,14 @@ class Settings(BaseSettings):
             "consistency comes from structured output and deterministic checks."
         ),
     )
+    VERIFIER_EFFORT: Literal["low", "medium", "high", "xhigh", "max"] = Field(
+        default="medium",
+        description=(
+            "Critic reasoning effort, sent explicitly. Measured on Haiku 5.5: "
+            "medium 18/18 verdicts right, high 16/18 and slower (D-050). "
+            "Haiku 4.5 rejects the parameter."
+        ),
+    )
     MAX_REVISIONS: int = Field(
         default=2,
         ge=0,
