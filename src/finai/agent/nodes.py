@@ -32,11 +32,13 @@ from langchain_core.messages import AIMessage, BaseMessage, SystemMessage, ToolM
 from langchain_core.runnables import Runnable, RunnableConfig
 from langchain_core.tools import BaseTool
 from langgraph.prebuilt import ToolNode
+from langsmith.run_helpers import get_current_run_tree
 
 from finai.agent.prompts import SYSTEM_PROMPT
 from finai.agent.state import AgentState
 from finai.agent.verification.verifier import (
     Critic,
+    Verdict,
     caveat,
     feedback_message,
     verify,
@@ -141,6 +143,24 @@ def stop_at_limit(state: AgentState) -> dict[str, Any]:
     return {"messages": [*results, answer]}
 
 
+def _record_verdict(verdict: Verdict, revision: int) -> None:
+    """Put the verdict on the verifier's run in the trace (1.5.18).
+
+    Searchable in LangSmith by status, issue count, revision and which stage
+    decided. A no-op when nothing is being traced.
+    """
+    run = get_current_run_tree()
+    if run is not None:
+        run.add_metadata(
+            {
+                "verdict_status": verdict.status,
+                "verdict_by": verdict.by,
+                "verdict_issues": len(verdict.issues),
+                "revision": revision,
+            }
+        )
+
+
 def make_verifier_node(
     critic: Critic | None,
 ) -> Callable[[AgentState], dict[str, Any]]:
@@ -156,6 +176,7 @@ def make_verifier_node(
     def verifier(state: AgentState) -> dict[str, Any]:
         draft = state["messages"][-1]
         verdict = verify(draft.text, state, critic)
+        _record_verdict(verdict, state["revision_count"])
         update: dict[str, Any] = {"verdict": verdict.model_dump()}
         if verdict.status == "pass":
             return update

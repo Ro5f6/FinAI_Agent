@@ -229,3 +229,11 @@ class Settings(BaseSettings):
         default="finai-agent-dev",
         description="LangSmith project name.",
     )
+    LANGSMITH_ENDPOINT: str | None = Field(
+        default=None,
+        description=(
+            "LangSmith API address for the account's region. Unset is the US one; "
+            "an account on aws.smith.langchain.com needs "
+            "https://aws.api.smith.langchain.com, or every request gets 403."
+        ),
+    )

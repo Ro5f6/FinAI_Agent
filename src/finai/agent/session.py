@@ -12,6 +12,7 @@ Verified against langgraph 1.2.14: a checkpointed graph invoked without a
 first with a clear message. ``retrieved_docs`` starts as [] on a new thread.
 """
 
+from importlib.metadata import PackageNotFoundError, version
 from typing import Any
 
 from langchain_core.messages import AIMessage
@@ -24,11 +25,31 @@ class NoAnswerError(LookupError):
     """The thread's last message isn't an answer from the agent."""
 
 
+def app_version() -> str:
+    """The installed package's version, recorded on every trace."""
+    try:
+        return version("finai")
+    except PackageNotFoundError:  # running from a source tree without install
+        return "unknown"
+
+
 def thread_config(*, user_id: str, thread_id: str) -> dict[str, Any]:
-    """The run config for one user's thread."""
+    """The run config for one user's thread.
+
+    ``metadata`` goes on the trace (1.4.3): the user and app version to filter
+    runs by, and the thread ID, which LangSmith uses to group a
+    conversation's runs into one thread.
+    """
     if not user_id or not thread_id:
         raise ValueError("user_id and thread_id are both required")
-    return {"configurable": {"user_id": user_id, "thread_id": thread_id}}
+    return {
+        "configurable": {"user_id": user_id, "thread_id": thread_id},
+        "metadata": {
+            "user_id": user_id,
+            "thread_id": thread_id,
+            "app_version": app_version(),
+        },
+    }
 
 
 def ask(

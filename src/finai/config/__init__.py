@@ -11,7 +11,10 @@ singleton, so they can supply their own environment.
 """
 
 from finai.config.settings import Settings
+from finai.config.tracing import export_tracing
 
 settings = Settings()
+# LangSmith reads the environment, once (finai.config.tracing).
+export_tracing(settings)
 
 __all__ = ["Settings", "settings"]
