@@ -111,3 +111,19 @@ def test_singleton_is_importable_from_package(clean_env: pytest.MonkeyPatch) -> 
     module = importlib.reload(finai.config)
 
     assert module.settings.QDRANT_URL == "http://singleton.test:6333"
+
+
+def test_verifier_defaults(clean_env: pytest.MonkeyPatch) -> None:
+    for name, value in REQUIRED_ENV.items():
+        clean_env.setenv(name, value)
+    settings = Settings(_env_file=None)
+    assert settings.VERIFIER_MODEL == "claude-haiku-5-5"
+    assert settings.MAX_REVISIONS == 2
+
+
+def test_max_revisions_cannot_be_negative(clean_env: pytest.MonkeyPatch) -> None:
+    for name, value in REQUIRED_ENV.items():
+        clean_env.setenv(name, value)
+    clean_env.setenv("MAX_REVISIONS", "-1")
+    with pytest.raises(ValueError, match="MAX_REVISIONS"):
+        Settings(_env_file=None)

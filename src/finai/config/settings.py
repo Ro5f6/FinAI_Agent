@@ -157,6 +157,24 @@ class Settings(BaseSettings):
         description="Hard ceiling on planner/tool iterations per query.",
     )
 
+    # --- Verifier (1.5) ---
+    VERIFIER_MODEL: str = Field(
+        default="claude-haiku-5-5",
+        description=(
+            "Model for the LLM critic, a different one from the planner. No "
+            "temperature is sent: the 5.x models reject non-default values; "
+            "consistency comes from structured output and deterministic checks."
+        ),
+    )
+    MAX_REVISIONS: int = Field(
+        default=2,
+        ge=0,
+        description=(
+            "Times an answer can be sent back to the planner before it is "
+            "returned with a caveat listing the claims that couldn't be verified."
+        ),
+    )
+
     # --- SEC filings ---
     SEC_IDENTITY: str = Field(
         description="Contact identity the SEC requires on every EDGAR request, e.g. 'Name email'.",
