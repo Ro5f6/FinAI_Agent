@@ -86,3 +86,53 @@ def test_turn_input_carries_the_user_from_the_caller() -> None:
     assert update["user_id"] == "user-42"
     assert update["loop_count"] == 0
     assert "retrieved_docs" not in update  # left to accumulate
+
+
+# --- verifier fields (1.5.1) --------------------------------------------------
+
+_RESULT = {"tool": "get_live_market_data", "tool_call_id": "c1", "status": "success",
+           "output": {"price": 212.77}}  # fmt: skip
+
+
+def _verify_graph(checkpointer=None):
+    """A tool step that records a result, then a verifier that revises once."""
+
+    def tools(state: AgentState) -> dict:
+        return {"tool_results": [_RESULT]}
+
+    def verify(state: AgentState) -> dict:
+        return {
+            "verdict": {"status": "revise", "issues": [{"claim": "x", "reason": "y"}]},
+            "revision_count": state["revision_count"] + 1,
+        }
+
+    graph = StateGraph(AgentState)
+    graph.add_node("tools", tools)
+    graph.add_node("verify", verify)
+    graph.add_edge(START, "tools")
+    graph.add_edge("tools", "verify")
+    graph.add_edge("verify", END)
+    return graph.compile(checkpointer=checkpointer)
+
+
+def test_tool_results_accumulate_and_verdict_resets_per_question() -> None:
+    graph = _verify_graph(InMemorySaver())
+    config = {"configurable": {"thread_id": "t1"}}
+    start = {"retrieved_docs": [], "tool_results": []}
+
+    first = graph.invoke({**turn_input("First?", "demo"), **start}, config)
+    assert first["tool_results"] == [_RESULT]
+    assert (first["revision_count"], first["verdict"]["status"]) == (1, "revise")
+
+    # Seen at the start of the next question: the answer-level fields are
+    # cleared, the thread's evidence is kept.
+    graph.update_state(config, turn_input("Second?", "demo"))
+    between = graph.get_state(config).values
+    assert (between["revision_count"], between["verdict"]) == (0, None)
+    assert between["tool_results"] == [_RESULT]
+
+
+def test_turn_input_resets_the_answer_level_fields() -> None:
+    update = turn_input("Hi", "user-42")
+    assert (update["revision_count"], update["verdict"]) == (0, None)
+    assert "tool_results" not in update  # left to accumulate
