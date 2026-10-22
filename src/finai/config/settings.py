@@ -165,6 +165,13 @@ class Settings(BaseSettings):
         default=Path("data/raw"),
         description="Archive of fetched filings, gzipped, for provenance and manual inspection.",
     )
+    SNAPSHOT_DIR: Path = Field(
+        default=Path("data/snapshots"),
+        description=(
+            "Where Qdrant collection snapshots are kept on this machine. The copy "
+            "here survives the cluster's volume being deleted after each AWS session."
+        ),
+    )
     EDGAR_LOCAL_DATA_DIR: Path = Field(
         default=Path("data/edgar"),
         description="edgartools local store. This is the cache that makes re-runs free.",

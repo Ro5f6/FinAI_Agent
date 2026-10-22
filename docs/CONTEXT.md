@@ -19,7 +19,7 @@ runs a question on a checkpointed thread; memory verified in process (1.3.15)
 and stored in Redis, surviving a process restart (1.3.16-1.3.17). **1.3.18-1.3.21
 (the test prompts) need Claude, so wait for Anthropic credits.** 1.3.22 done:
 `tools/financials.py` (headline figures and revenue breakdowns); 1.3.23 done
-(`tools/trends.py`); 1.3.24 done (`tools/prices.py`); 1.3.25 done: `get_financial_history` and `get_price_history` are agent tools, five in all (D-036). 1.3.26 done: tickers resolve to a 10-K filer before anything is fetched or queued (`fetch.resolve_ticker`, D-037). 1.3.27 done: a 10-K search for a company not indexed queues it once (`ingestion/jobs.py`, D-038). 1.3.28 done: `python -m finai.ingestion.worker` ingests queued companies (D-039); CRCL went from queued to searchable in 7.7 s. 1.3.29 done: new companies are limited to 5 per user and 50 in total per UTC day, checked in the queue script (D-040). 1.3.30 done: on-demand ingestion is tested end to end (`tests/test_ondemand.py`: FIG queued, ingested by the worker, then searchable); it found that a missing collection crashed the first search. On-demand ingestion (1.3.26-1.3.30) is complete. 1.3.31 done: `reference/sp500-2026-10-20.csv` (503 tickers, 500 companies) and `python -m finai.ingestion.universe` resolve 501 of 503 (D-041). Searches now go by company CIK, not ticker (D-043): chunks carry `ciks`, the 640 existing points were backfilled with `python -m finai.ingestion.backfill`. 1.3.32 done: the S&P 500 is indexed, 47,233 points (see "S&P 500 ingest run"). **Next: 1.3.33** (snapshot the collection), and 1.3.32a (17 filings extract partly or not at all) or the Claude test prompts 1.3.18-1.3.21 once Anthropic credits are bought. Direction (D-042): a local MVP first, with a Chainlit chat interface (new step 2.4) calling the FastAPI endpoint, run with `docker compose up` (3.1); AWS after. Step 1.3's
+(`tools/trends.py`); 1.3.24 done (`tools/prices.py`); 1.3.25 done: `get_financial_history` and `get_price_history` are agent tools, five in all (D-036). 1.3.26 done: tickers resolve to a 10-K filer before anything is fetched or queued (`fetch.resolve_ticker`, D-037). 1.3.27 done: a 10-K search for a company not indexed queues it once (`ingestion/jobs.py`, D-038). 1.3.28 done: `python -m finai.ingestion.worker` ingests queued companies (D-039); CRCL went from queued to searchable in 7.7 s. 1.3.29 done: new companies are limited to 5 per user and 50 in total per UTC day, checked in the queue script (D-040). 1.3.30 done: on-demand ingestion is tested end to end (`tests/test_ondemand.py`: FIG queued, ingested by the worker, then searchable); it found that a missing collection crashed the first search. On-demand ingestion (1.3.26-1.3.30) is complete. 1.3.31 done: `reference/sp500-2026-10-20.csv` (503 tickers, 500 companies) and `python -m finai.ingestion.universe` resolve 501 of 503 (D-041). Searches now go by company CIK, not ticker (D-043): chunks carry `ciks`, the 640 existing points were backfilled with `python -m finai.ingestion.backfill`. 1.3.32 done: the S&P 500 is indexed, 47,233 points (see "S&P 500 ingest run"). 1.3.33 done: `python -m finai.ingestion.snapshot create|restore`; the S&P 500 collection is saved as `data/snapshots/sec_filings-...-2026-10-22-17-08-26.snapshot` (480 MB, with a `.json` manifest) and restores in 7.3 s. **Next:** 1.3.32a (17 filings extract partly or not at all), or step 1.3's test prompts once Anthropic credits are bought or the Claude test prompts 1.3.18-1.3.21 once Anthropic credits are bought. Direction (D-042): a local MVP first, with a Chainlit chat interface (new step 2.4) calling the FastAPI endpoint, run with `docker compose up` (3.1); AWS after. Step 1.3's
 Done when: memory survives a restart (met); prompt 1.3.20 calls both tools and
 the answer cites 10-K sections (needs Claude). Running it with Claude waits for
 Anthropic credits. 1.3.7's live call (`-m anthropic`) waits for Anthropic credits. Added outside the original order: 1.2.21, reranking.
@@ -336,6 +336,28 @@ those 9 filings (FY2023-2026), 487 points.
 - **`/stock/candle` returns 403 on the free key**: price history is paid-only,
   so Alpaca stays (D-013, 1.3.24).
 - A quote takes ~200-360 ms (three calls); cached it takes 0.01 ms.
+
+## Verified Qdrant snapshots (qdrant-client 1.19.1, server v1.19.1, 2026-10-22)
+
+- `create_snapshot(collection, wait=True)` -> `SnapshotDescription(name,
+  creation_time, size, checksum)`; `checksum` is the file's SHA-256 (matched
+  on download). 47,233 points: 3.8 s, 479,682,048 bytes, one file.
+- Download: `GET /collections/{c}/snapshots/{name}`, `application/octet-stream`,
+  **no Content-Length**; streamed in 2.7 s. `delete_snapshot(c, name,
+  wait=True)` removes the server's copy; `list_snapshots` is then empty.
+- `recover_snapshot(collection, location=...)` takes a URL or `file://` path
+  **the server fetches**, so it can't restore a file on the client machine.
+  Use `POST /collections/{c}/snapshots/upload?wait=true&priority=snapshot&checksum=<sha256>`
+  with multipart field `snapshot` (the generated client's
+  `recover_from_uploaded_snapshot`). It creates a missing collection, carries
+  over payload indexes, and with `priority=snapshot` replaces drifted data
+  (4 points back to 3 in the test).
+- Restoring the 480 MB snapshot into a new collection: 7.3 s; same count,
+  identical top-5 search with identical scores, identical payload and vector.
+- The snapshot's manifest records `embedding_model` from Settings: the
+  shell's stale `EMBEDDING_MODEL=BAAI/bge-small-en-v1.5` first wrote it wrong
+  (recreated with `env -u EMBEDDING_MODEL`). Remove that export from the
+  shell profile.
 
 ## S&P 500 ingest run (1.3.32, 2026-10-22)
 
