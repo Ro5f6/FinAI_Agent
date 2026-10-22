@@ -179,3 +179,86 @@ def test_known_gap_a_number_elsewhere_in_the_passages_passes() -> None:
     to the claim: 14% is another customer's share, so "22%" -> "14%" passes.
     The LLM critic (1.5.8) reads the claim in context."""
     assert _flagged("One direct customer represented 14% of revenue.") == []
+
+
+# --- citations (1.5.5) ------------------------------------------------------------
+
+from finai.agent.verification.checks import check_citations
+
+DOCS = [
+    {"ticker": "NVDA", "fiscal_year": 2026, "section": "Item 1A", "text": "..."},
+    {"ticker": "NVDA", "fiscal_year": 2026, "section": "Item 7", "text": "..."},
+]
+CITED_RESULTS = [
+    {**QUOTE, "output": {**QUOTE["output"], "quote_time": "2026-10-22T20:00:00Z"}},
+    {
+        "tool": "get_financial_history",
+        "status": "success",
+        "output": {"citation": "[NVDA 10-K FY2026, Item 8]"},
+    },
+    {
+        "tool": "get_price_history",
+        "status": "success",
+        "output": {"end_date": "2026-10-21"},
+    },
+    {"tool": "get_user_portfolio", "status": "success", "output": {"holdings": []}},
+]
+
+
+def _cited(draft: str, results=CITED_RESULTS, docs=DOCS) -> list[str]:
+    return [i.claim for i in check_citations(draft, results, docs)]
+
+
+def test_every_citation_form_passes_when_its_source_was_returned() -> None:
+    draft = (
+        "Risks [NVDA 10-K FY2026, Item 1A]. Results [NVDA 10-K FY2026, Item 7]. "
+        "Revenue [NVDA 10-K FY2026, Item 8]. Price [Finnhub quote, 2026-10-22 20:00 UTC]. "
+        "Return [Alpaca prices, to 2026-10-21]. Holdings [portfolio]. "
+        "Repeated [NVDA 10-K FY2026, Item 1A]."
+    )
+    assert _cited(draft) == []
+
+
+@pytest.mark.parametrize(
+    "citation",
+    [
+        "[NVDA 10-K FY2024, Item 1A]",  # a year not retrieved
+        "[NVDA 10-K FY2026, Item 7A]",  # a section not retrieved
+        "[AMD 10-K FY2026, Item 1A]",  # a company not retrieved
+        "[Finnhub quote, 2026-10-22 19:00 UTC]",  # a quote time not returned
+        "[Alpaca prices, to 2026-10-14]",  # a price history not returned
+    ],
+)
+def test_a_citation_to_a_source_not_returned_is_flagged(citation: str) -> None:
+    assert _cited(f"A claim {citation}.") == [citation]
+
+
+def test_portfolio_cited_without_reading_it_is_flagged() -> None:
+    assert _cited("You hold 10 AAPL [portfolio].", results=[]) == ["[portfolio]"]
+
+
+@pytest.mark.parametrize(
+    "citation",
+    [
+        "[NVDA 10-K 2026, Item 1A]",
+        "[NVDA 10-K FY2026, Risk Factors]",
+        "[Finnhub, today]",
+    ],
+)
+def test_a_loose_citation_form_is_flagged(citation: str) -> None:
+    [issue] = check_citations(f"A claim {citation}.", CITED_RESULTS, DOCS)
+    assert issue.claim == citation
+    assert "citation form" in issue.reason
+
+
+def test_links_and_other_brackets_are_not_citations() -> None:
+    assert _cited("See [the filing](https://sec.gov/x) and [note 3].") == []
+
+
+def test_a_failed_tool_call_supports_no_citation() -> None:
+    failed = [
+        {"tool": "get_live_market_data", "status": "error", "output": "bad ticker"}
+    ]
+    assert _cited("[Finnhub quote, 2026-10-22 20:00 UTC]", results=failed) == [
+        "[Finnhub quote, 2026-10-22 20:00 UTC]"
+    ]

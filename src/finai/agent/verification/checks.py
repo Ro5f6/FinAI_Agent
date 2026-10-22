@@ -27,6 +27,22 @@ shown: "26.9" matches 26.8975, "about $5.25 trillion" matches
 Gap, as the plan notes: a figure that appears in a retrieved passage passes
 even if the answer gives it the wrong year. The year-labelled XBRL values
 from ``get_financial_history`` would allow checking the period too.
+Citations (1.5.5)
+-----------------
+Every citation must name a source a tool returned in this thread, in one of
+the forms the system prompt asks for (``prompts``):
+
+* ``[NVDA 10-K FY2026, Item 1A]``: a retrieved passage with that ticker,
+  fiscal year and section, or a ``get_financial_history`` result whose
+  ``citation`` is exactly this (its Item 8 figures);
+* ``[Finnhub quote, 2026-10-22 20:00 UTC]``: a quote with that time, to
+  the minute;
+* ``[Alpaca prices, to 2026-10-14]``: a price history ending that day;
+* ``[portfolio]``: the portfolio tool was called.
+
+A bracket that mentions a source ("10-K", "Finnhub", "Alpaca", "portfolio")
+but matches none of these forms is flagged too: the verifier can't check
+it. Markdown links, ``[text](url)``, aren't citations.
 """
 
 import math
@@ -35,6 +51,13 @@ from collections.abc import Iterable, Iterator
 from typing import Any, NamedTuple
 
 from pydantic import BaseModel, ConfigDict
+
+from finai.agent.prompts import (
+    FILING_CITATION,
+    PORTFOLIO_CITATION,
+    PRICE_CITATION,
+    QUOTE_CITATION,
+)
 
 SCALES: dict[str, float] = {
     "thousand": 1e3,
@@ -173,4 +196,96 @@ def check_numbers(
                 reason=f"{figure.text} is not in any tool result{hint}",
             )
         )
+    return issues
+
+
+_BRACKET = re.compile(r"\[[^\[\]]*\](?!\()")
+_SOURCE_WORDS = re.compile(r"10-K|Finnhub|Alpaca|portfolio", re.IGNORECASE)
+
+
+def _successful(
+    tool_results: Iterable[dict[str, Any]], tool: str
+) -> list[dict[str, Any]]:
+    return [
+        r["output"]
+        for r in tool_results
+        if r.get("tool") == tool
+        and r.get("status") == "success"
+        and isinstance(r.get("output"), dict)
+    ]
+
+
+def check_citations(
+    draft: str,
+    tool_results: Iterable[dict[str, Any]],
+    retrieved_docs: Iterable[dict[str, Any]],
+) -> list[Issue]:
+    """An issue for each citation that names a source no tool returned."""
+    results = list(tool_results)
+    passages = {
+        (
+            str(d.get("ticker", "")).upper(),
+            int(d.get("fiscal_year", 0)),
+            d.get("section"),
+        )
+        for d in retrieved_docs
+    }
+    filing_citations = {
+        o.get("citation") for o in _successful(results, "get_financial_history")
+    }
+    quote_times = {
+        str(o.get("quote_time", ""))[:16].replace("T", " ")
+        for o in _successful(results, "get_live_market_data")
+    }
+    price_ends = {o.get("end_date") for o in _successful(results, "get_price_history")}
+    has_portfolio = bool(_successful(results, "get_user_portfolio"))
+
+    issues = []
+    seen = set()
+    for match in _BRACKET.finditer(draft):
+        citation = match.group(0)
+        if citation in seen:
+            continue
+        seen.add(citation)
+        if filing := FILING_CITATION.fullmatch(citation):
+            key = (filing["ticker"], int(filing["fiscal_year"]), filing["section"])
+            if key not in passages and citation not in filing_citations:
+                issues.append(
+                    Issue(
+                        claim=citation,
+                        reason=f"{citation}: no {key[0]} FY{key[1]} {key[2]} passage "
+                        "or financial history was retrieved in this conversation",
+                    )
+                )
+        elif quote := QUOTE_CITATION.fullmatch(citation):
+            if quote["quote_time"] not in quote_times:
+                issues.append(
+                    Issue(
+                        claim=citation,
+                        reason=f"{citation}: no quote with that time was returned",
+                    )
+                )
+        elif price := PRICE_CITATION.fullmatch(citation):
+            if price["end_date"] not in price_ends:
+                issues.append(
+                    Issue(
+                        claim=citation,
+                        reason=f"{citation}: no price history ending that day was returned",
+                    )
+                )
+        elif citation == PORTFOLIO_CITATION:
+            if not has_portfolio:
+                issues.append(
+                    Issue(
+                        claim=citation,
+                        reason="[portfolio] cited but the portfolio wasn't read",
+                    )
+                )
+        elif _SOURCE_WORDS.search(citation):
+            issues.append(
+                Issue(
+                    claim=citation,
+                    reason=f"{citation} isn't in a citation form the verifier can check",
+                )
+            )
     return issues
