@@ -2,7 +2,6 @@
 
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
-from langgraph.graph import END
 
 from finai.agent.graph import STOP_AT_LIMIT, TOOLS, route_after_planner
 from finai.agent.nodes import STEP_LIMIT_RESULT, stop_at_limit
@@ -28,8 +27,10 @@ def _state(last, loop_count: int) -> dict:
     }
 
 
-def test_answer_ends_the_run() -> None:
-    assert route_after_planner(_state(AIMessage("NVDA is at $226.30."), 1)) == END
+def test_a_draft_answer_goes_to_the_verifier() -> None:
+    assert (
+        route_after_planner(_state(AIMessage("NVDA is at $226.30."), 1)) == "verifier"
+    )
 
 
 @pytest.mark.parametrize("loop_count", [1, settings.MAX_AGENT_LOOPS - 1])

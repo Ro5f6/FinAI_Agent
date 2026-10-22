@@ -35,6 +35,12 @@ from langgraph.prebuilt import ToolNode
 
 from finai.agent.prompts import SYSTEM_PROMPT
 from finai.agent.state import AgentState
+from finai.agent.verification.verifier import (
+    Critic,
+    caveat,
+    feedback_message,
+    verify,
+)
 from finai.config import settings
 from finai.tools.agent_tools import TOOLS
 
@@ -133,3 +139,37 @@ def stop_at_limit(state: AgentState) -> dict[str, Any]:
     ]
     answer = AIMessage(content=STEP_LIMIT_ANSWER.format(limit=settings.MAX_AGENT_LOOPS))
     return {"messages": [*results, answer]}
+
+
+def make_verifier_node(
+    critic: Critic | None,
+) -> Callable[[AgentState], dict[str, Any]]:
+    """The verifier node (1.5.11-1.5.13): check the draft, then decide.
+
+    pass: the draft is the answer. revise, with revisions and planner steps
+    left: the issues go back to the planner as a feedback message. revise
+    with either limit reached: the draft is returned with a caveat listing
+    the claims that couldn't be verified, replacing the draft (same message
+    ID) so the thread keeps one final answer.
+    """
+
+    def verifier(state: AgentState) -> dict[str, Any]:
+        draft = state["messages"][-1]
+        verdict = verify(draft.text, state, critic)
+        update: dict[str, Any] = {"verdict": verdict.model_dump()}
+        if verdict.status == "pass":
+            return update
+        can_revise = (
+            state["revision_count"] < settings.MAX_REVISIONS
+            and state["loop_count"] < settings.MAX_AGENT_LOOPS
+        )
+        if can_revise:
+            update["revision_count"] = state["revision_count"] + 1
+            update["messages"] = [feedback_message(verdict.issues)]
+        else:
+            update["messages"] = [
+                AIMessage(content=draft.text + caveat(verdict.issues), id=draft.id)
+            ]
+        return update
+
+    return verifier

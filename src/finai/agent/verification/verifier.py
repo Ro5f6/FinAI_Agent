@@ -39,10 +39,45 @@ class Verdict(BaseModel):
 Critic = Callable[[str, str, dict[str, Any]], Verdict]
 
 
+FEEDBACK_FLAG = "verifier_feedback"
+
+
+def is_feedback(message: AnyMessage) -> bool:
+    """A message the verifier added to send a draft back, not the user's."""
+    return bool(message.additional_kwargs.get(FEEDBACK_FLAG))
+
+
+def feedback_message(issues: Sequence[Issue]) -> HumanMessage:
+    """The issues, as the planner reads them before answering again."""
+    listed = "\n".join(f"- {i.claim}: {i.reason}" for i in issues)
+    return HumanMessage(
+        content=(
+            "A review of your draft answer found these problems:\n"
+            f"{listed}\n\n"
+            "Answer the question again, fixing them. Use only what the tools "
+            "returned, and call tools if you need more. If something can't be "
+            "supported, say it isn't available rather than stating it."
+        ),
+        additional_kwargs={FEEDBACK_FLAG: True},
+    )
+
+
+def caveat(issues: Sequence[Issue]) -> str:
+    """What the user is told about claims that stayed unverified (1.5.12)."""
+    listed = "\n".join(f"- {i.claim}" for i in issues)
+    return (
+        "\n\nNote: I couldn't verify the following against my sources, so "
+        f"treat them with caution:\n{listed}"
+    )
+
+
 def current_question(messages: Sequence[AnyMessage]) -> str:
-    """The latest user message: the question the draft answers."""
+    """The latest user message, the question the draft answers.
+
+    The verifier's own feedback messages are skipped.
+    """
     for message in reversed(messages):
-        if isinstance(message, HumanMessage):
+        if isinstance(message, HumanMessage) and not is_feedback(message):
             return str(message.content)
     return ""
 
