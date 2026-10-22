@@ -89,6 +89,19 @@ def test_failure_marks_failed_for_a_day_and_acknowledges(fake: _FakeRedis) -> No
     assert fake.acked == ["1-0"]
 
 
+def test_no_extractable_items_marks_failed_not_done(fake: _FakeRedis) -> None:
+    from finai.ingestion.ingest import NoItemsError
+
+    def ingest(ticker, years):
+        raise NoItemsError("YUM: no 10-K items could be extracted")
+
+    outcome = process(
+        fake, Job("1-0", "YUM", 1), ingest=ingest, is_indexed=lambda t: False
+    )
+    assert outcome == "failed"
+    assert fake.values["ingest:status:YUM"] == "failed"
+
+
 def test_already_indexed_ticker_is_skipped(fake: _FakeRedis) -> None:
     def ingest(ticker, years):
         raise AssertionError("ingested twice")

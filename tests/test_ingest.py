@@ -283,3 +283,18 @@ def test_cli_tickers_file(
 def test_cli_tickers_file_rejects_conflicting_options(argv: list[str]) -> None:
     with pytest.raises(SystemExit):
         ingest.main(argv)
+
+
+def test_a_filing_with_no_extractable_items_is_a_failure(
+    universe, pipeline, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Not a success with 0 chunks: the queue would re-ingest it on every question."""
+    monkeypatch.setattr(ingest, "extract_filing_items", lambda filing: {})
+
+    with pytest.raises(ingest.NoItemsError, match="no 10-K items"):
+        ingest.ingest_filing(_UniverseFiling("Y-25"), "YUM")
+
+    run = ingest.ingest_universe(["AAPL"])
+    assert run.ingested == []
+    assert run.failed["AAPL"].startswith("NoItemsError")
+    assert not pipeline.collection_exists(settings.COLLECTION_NAME)  # nothing stored

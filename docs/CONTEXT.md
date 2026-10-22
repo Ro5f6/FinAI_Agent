@@ -19,7 +19,7 @@ runs a question on a checkpointed thread; memory verified in process (1.3.15)
 and stored in Redis, surviving a process restart (1.3.16-1.3.17). **1.3.18-1.3.21
 (the test prompts) need Claude, so wait for Anthropic credits.** 1.3.22 done:
 `tools/financials.py` (headline figures and revenue breakdowns); 1.3.23 done
-(`tools/trends.py`); 1.3.24 done (`tools/prices.py`); 1.3.25 done: `get_financial_history` and `get_price_history` are agent tools, five in all (D-036). 1.3.26 done: tickers resolve to a 10-K filer before anything is fetched or queued (`fetch.resolve_ticker`, D-037). 1.3.27 done: a 10-K search for a company not indexed queues it once (`ingestion/jobs.py`, D-038). 1.3.28 done: `python -m finai.ingestion.worker` ingests queued companies (D-039); CRCL went from queued to searchable in 7.7 s. 1.3.29 done: new companies are limited to 5 per user and 50 in total per UTC day, checked in the queue script (D-040). 1.3.30 done: on-demand ingestion is tested end to end (`tests/test_ondemand.py`: FIG queued, ingested by the worker, then searchable); it found that a missing collection crashed the first search. On-demand ingestion (1.3.26-1.3.30) is complete. 1.3.31 done: `reference/sp500-2026-10-20.csv` (503 tickers, 500 companies) and `python -m finai.ingestion.universe` resolve 501 of 503 (D-041). Searches now go by company CIK, not ticker (D-043): chunks carry `ciks`, the 640 existing points were backfilled with `python -m finai.ingestion.backfill`. **Next: 1.3.32** (`--tickers-file`, then run the S&P 500 ingest) or the Claude test prompts 1.3.18-1.3.21 once Anthropic credits are bought. Direction (D-042): a local MVP first, with a Chainlit chat interface (new step 2.4) calling the FastAPI endpoint, run with `docker compose up` (3.1); AWS after. Step 1.3's
+(`tools/trends.py`); 1.3.24 done (`tools/prices.py`); 1.3.25 done: `get_financial_history` and `get_price_history` are agent tools, five in all (D-036). 1.3.26 done: tickers resolve to a 10-K filer before anything is fetched or queued (`fetch.resolve_ticker`, D-037). 1.3.27 done: a 10-K search for a company not indexed queues it once (`ingestion/jobs.py`, D-038). 1.3.28 done: `python -m finai.ingestion.worker` ingests queued companies (D-039); CRCL went from queued to searchable in 7.7 s. 1.3.29 done: new companies are limited to 5 per user and 50 in total per UTC day, checked in the queue script (D-040). 1.3.30 done: on-demand ingestion is tested end to end (`tests/test_ondemand.py`: FIG queued, ingested by the worker, then searchable); it found that a missing collection crashed the first search. On-demand ingestion (1.3.26-1.3.30) is complete. 1.3.31 done: `reference/sp500-2026-10-20.csv` (503 tickers, 500 companies) and `python -m finai.ingestion.universe` resolve 501 of 503 (D-041). Searches now go by company CIK, not ticker (D-043): chunks carry `ciks`, the 640 existing points were backfilled with `python -m finai.ingestion.backfill`. 1.3.32 done: the S&P 500 is indexed, 47,233 points (see "S&P 500 ingest run"). **Next: 1.3.33** (snapshot the collection), and 1.3.32a (17 filings extract partly or not at all) or the Claude test prompts 1.3.18-1.3.21 once Anthropic credits are bought. Direction (D-042): a local MVP first, with a Chainlit chat interface (new step 2.4) calling the FastAPI endpoint, run with `docker compose up` (3.1); AWS after. Step 1.3's
 Done when: memory survives a restart (met); prompt 1.3.20 calls both tools and
 the answer cites 10-K sections (needs Claude). Running it with Claude waits for
 Anthropic credits. 1.3.7's live call (`-m anthropic`) waits for Anthropic credits. Added outside the original order: 1.2.21, reranking.
@@ -336,6 +336,39 @@ those 9 filings (FY2023-2026), 487 points.
 - **`/stock/candle` returns 403 on the free key**: price history is paid-only,
   so Alpaca stays (D-013, 1.3.24).
 - A quote takes ~200-360 ms (three calls); cached it takes 0.01 ms.
+
+## S&P 500 ingest run (1.3.32, 2026-10-22)
+
+`python -m finai.ingestion.ingest --tickers-file reference/sp500-2026-10-20.csv`
+on the laptop (Apple Silicon, compose Qdrant v1.19.1, voyage-4). Logs in
+`data/ingest-runs/` (gitignored).
+
+- **39.9 min** for 503 tickers: 495 filings ingested, 6 skipped as already
+  stored (AAPL, MSFT, NVDA from earlier runs; GOOGL, FOXA, NWSA as their
+  share-class siblings' filing, see below), 2
+  failed (HONA, VYLR: no 10-K). About 4.8 s per filing; ingest alone 0.8-7.3 s.
+- **46,593 new chunks**; collection 47,233 points, status green. Chunks per
+  filing: median 87, max 328. The plan's estimate was ~48k (95 per filing).
+- **Disk:** `data/qdrant` grew from 167 MB to 458 MB.
+- **Resume verified:** rerunning the same command took 4.2 min (SEC lookups
+  only): 0 ingested, 495 already stored, 8 failed, points unchanged.
+- Sections kept per filing (of Items 1, 1A, 7, 7A, 8): 5 in 302, 4 in 156,
+  3 in 20, 2 in 8, 1 in 3, 0 in 6. Item 8 was dropped as a cross-reference
+  in 101 filings, Item 7A in 93: expected (the cleaner drops pointers,
+  D-016); figures come from XBRL (1.3.22) regardless.
+- **No items extracted (now `NoItemsError`, a failure, not 0 chunks):** C,
+  EMR, GWW, JBHT, YUM (edgartools' section detection finds no sections in
+  their layout) and WFC (report in an EX-13 exhibit). Before the fix these
+  were counted "ingested" with 0 chunks; through the queue they would have
+  been re-ingested on every question.
+- **Thin (Item 7 and usually 8 only pointers):** BNY, IBM, PGR, USB keep
+  their annual report in EX-13 (as WFC); CLX, DE, DGX, ERIE, ETN, ETR, VMC
+  point to pages later in the same document, not followed. 1.3.32a.
+- SBAC's Item 8 came back empty (0 chars), not a pointer.
+- Share classes: the S&P file is alphabetical, so GOOG, FOX and NWS were
+  ingested first and GOOGL, FOXA and NWSA skipped as the same accession.
+- Warnings in the run: edgartools TOC anchor collisions (6 filings) and an
+  unsupported inline-XBRL date format (2); neither lost a target item.
 
 ## Verified S&P 500 universe (2026-10-21)
 

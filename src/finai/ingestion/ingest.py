@@ -77,13 +77,31 @@ class IngestResult(NamedTuple):
         )
 
 
+class NoItemsError(LookupError):
+    """No 10-K item could be extracted, so nothing would be stored.
+
+    Six S&P 500 filings in the 1.3.32 run: edgartools found no sections in
+    C, EMR, GWW, JBHT and YUM, and WFC's report is in an EX-13 exhibit. Raised
+    rather than storing 0 chunks as a success, which would let the on-demand
+    queue re-ingest the company on every question.
+    """
+
+
 def ingest_filing(filing: EntityFiling, ticker: str) -> IngestResult:
-    """Run one filing through every step and store its chunks."""
+    """Run one filing through every step and store its chunks.
+
+    Raises:
+        NoItemsError: no item had text to chunk.
+    """
     started = time.monotonic()
     meta = filing_meta(filing, ticker)._replace(ciks=company_ciks(filing, ticker))
     archive_filing(filing, ticker)
 
     cleaned = clean_items(extract_filing_items(filing))
+    if not cleaned.sections:
+        raise NoItemsError(
+            f"{meta.ticker} {meta.accession}: no 10-K items could be extracted"
+        )
     payloads = chunk_filing(meta, cleaned.sections)
     vectors = embed_documents([p.text for p in payloads])
 
@@ -205,8 +223,9 @@ def main(argv: list[str] | None = None) -> int:
         try:
             results = ingest_ticker(ticker, args.years)
         except LookupError as error:
-            # UnknownTickerError and FilingNotFoundError (fetch.resolve_ticker) are
-            # both LookupErrors: an unknown ticker, or a company with no 10-K.
+            # UnknownTickerError, FilingNotFoundError (fetch.resolve_ticker) and
+            # NoItemsError are LookupErrors: an unknown ticker, a company with
+            # no 10-K, or a 10-K whose items couldn't be extracted.
             # The other tickers still run.
             print(f"error: {error}", file=sys.stderr)
             failed = True
