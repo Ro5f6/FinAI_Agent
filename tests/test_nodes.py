@@ -284,3 +284,69 @@ def test_a_bug_in_a_tool_is_not_hidden(stub_search) -> None:
 
     with pytest.raises(MissingUserError):
         _run_tools([("get_user_portfolio", {})], {"configurable": {}})
+
+
+# --- tool_results for the verifier (1.5.2) -------------------------------------
+
+
+def test_every_tool_output_is_kept_parsed_with_its_arguments(stub_search) -> None:
+    out = _run_tools(
+        [
+            ("query_company_10k", {"ticker": "AAPL", "question": "risks"}),
+            ("get_user_portfolio", {}),
+        ]
+    )
+
+    first, second = out["tool_results"]
+    assert (first["tool"], first["tool_call_id"], first["status"]) == (
+        "query_company_10k",
+        "call0",
+        "success",
+    )
+    assert first["args"] == {"ticker": "AAPL", "question": "risks"}
+    assert first["output"]["ticker"] == "AAPL"  # parsed, not a JSON string
+    assert second["tool"] == "get_user_portfolio"
+    assert second["output"]["holdings"][0]["ticker"] == "AAPL"
+
+
+def test_an_error_result_is_kept_as_text(stub_search) -> None:
+    out = _run_tools(
+        [
+            (
+                "query_company_10k",
+                {"ticker": "AAPL", "question": "q", "section": "Risk Factors"},
+            )
+        ]
+    )
+
+    [result] = out["tool_results"]
+    assert result["status"] == "error"
+    assert isinstance(result["output"], str)
+    assert "section" in result["output"]
+
+
+def test_a_not_found_result_is_kept_as_data(
+    stub_search, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A tool that reports 'not found' succeeded; its status is in the output."""
+    monkeypatch.setattr(
+        market_data,
+        "get_live_market_data",
+        lambda t: (_ for _ in ()).throw(market_data.TickerNotFoundError("no quote")),
+    )
+    out = _run_tools([("get_live_market_data", {"ticker": "ZZZZ"})])
+
+    [result] = out["tool_results"]
+    assert (result["status"], result["output"]["status"]) == ("success", "not_found")
+
+
+def test_tools_not_run_at_the_step_limit_add_no_results() -> None:
+    from finai.agent.nodes import stop_at_limit
+
+    request = AIMessage(
+        content="",
+        tool_calls=[{"id": "c1", "name": "get_live_market_data", "args": {}}],
+    )
+    update = stop_at_limit({**_state(), "messages": [HumanMessage("q"), request]})
+
+    assert "tool_results" not in update

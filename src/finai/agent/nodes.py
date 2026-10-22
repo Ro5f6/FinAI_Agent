@@ -6,8 +6,10 @@ reply's tool calls concurrently, serialises dict results to JSON, injects the
 run's config (the portfolio tool's user), returns invalid arguments and
 unknown tool names to the model as error messages so it can correct itself,
 and raises on any other exception so a bug isn't turned into model input. The
-added step copies the passages of each successful 10-K search into
-``retrieved_docs`` for the verifier (1.5) and the evals (6.2).
+added step records what the tools returned for the verifier (1.5): every
+result, parsed, with the arguments it was called with, in ``tool_results``;
+and the passages of each successful 10-K search in ``retrieved_docs``, also
+used by the evals (6.2).
 
 The planner reads the conversation and either answers or asks for tools. The
 system prompt is prepended on every call rather than kept in the state: the
@@ -62,16 +64,40 @@ def _passages(message: ToolMessage) -> list[dict[str, Any]]:
     return json.loads(message.content).get("passages", [])
 
 
+def _tool_result(message: ToolMessage, args: dict[str, Any]) -> dict[str, Any]:
+    """One tool's output as the verifier reads it.
+
+    Tools return dicts, which ``ToolNode`` serialises to JSON; an error
+    (invalid arguments, an unknown tool) is plain text, kept as it is.
+    """
+    try:
+        output: Any = json.loads(message.content)
+    except (json.JSONDecodeError, TypeError):
+        output = message.content
+    return {
+        "tool": message.name,
+        "tool_call_id": message.tool_call_id,
+        "args": args,
+        "status": message.status,
+        "output": output,
+    }
+
+
 def make_tool_node(
     tools: Sequence[BaseTool] = TOOLS,
 ) -> Callable[[AgentState, RunnableConfig], dict[str, Any]]:
-    """The tool node: run the requested tools, keep the 10-K passages."""
+    """The tool node: run the requested tools, keep their outputs and passages."""
     tool_node = ToolNode(tools)
 
     def run_tools(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
         results = tool_node.invoke(state, config)["messages"]
+        calls = state["messages"][-1].tool_calls
+        args = {call["id"]: call["args"] for call in calls}
         return {
             "messages": results,
+            "tool_results": [
+                _tool_result(m, args.get(m.tool_call_id, {})) for m in results
+            ],
             "retrieved_docs": [p for m in results for p in _passages(m)],
         }
 
