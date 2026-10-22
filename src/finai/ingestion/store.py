@@ -27,6 +27,8 @@ PAYLOAD_INDEXES: dict[str, models.PayloadSchemaType] = {
     "section": models.PayloadSchemaType.KEYWORD,
     # A list per point; a condition matches if any element does.
     "ciks": models.PayloadSchemaType.INTEGER,
+    # Resuming a bulk ingest checks each filing by accession (1.3.32).
+    "accession": models.PayloadSchemaType.KEYWORD,
 }
 
 
@@ -235,6 +237,30 @@ def search(
         log.warning("reranker unavailable, using embedding order: %s", error)
         return hits[:k]
     return [hits[i]._replace(relevance=score) for i, score in order[:k]]
+
+
+def filing_stored(
+    client: QdrantClient, accession: str, name: str | None = None
+) -> bool:
+    """Whether any chunk of the filing ``accession`` is stored.
+
+    A missing collection stores nothing, as on the first run.
+    """
+    name = name or settings.COLLECTION_NAME
+    if not client.collection_exists(name):
+        return False
+    count = client.count(
+        collection_name=name,
+        count_filter=models.Filter(
+            must=[
+                models.FieldCondition(
+                    key="accession", match=models.MatchValue(value=accession)
+                )
+            ]
+        ),
+        exact=True,
+    )
+    return count.count > 0
 
 
 def _company(cik: int) -> models.FieldCondition:

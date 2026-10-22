@@ -177,3 +177,109 @@ def test_cli_ingests_aapl_end_to_end() -> None:
     assert run.returncode == 0, run.stderr
     assert run.stdout.startswith("AAPL FY")
     assert "0 stale removed" in run.stdout
+
+
+# --- --tickers-file (1.3.32) --------------------------------------------------
+
+# One latest 10-K per ticker; GOOG is GOOGL's share class, the same filing.
+_ACCESSIONS = {"AAPL": "A-25", "MSFT": "M-26", "GOOGL": "G-25", "GOOG": "G-25"}
+
+
+class _UniverseFiling(_Filing):
+    def __init__(self, accession: str) -> None:
+        super().__init__(2025)
+        self.accession_no = accession
+
+
+@pytest.fixture
+def universe(pipeline: QdrantClient, monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """The pipeline above, with each ticker's own latest 10-K; calls recorded."""
+    fetched: list[tuple[str, int]] = []
+
+    def latest(ticker: str, n: int) -> list[_UniverseFiling]:
+        fetched.append((ticker, n))
+        if ticker == "NOPE":
+            raise FilingNotFoundError("NOPE has no 10-K on EDGAR")
+        return [_UniverseFiling(_ACCESSIONS[ticker])]
+
+    monkeypatch.setattr(ingest, "get_latest_10ks", latest)
+    return fetched
+
+
+def _stored(client: QdrantClient) -> set[str]:
+    points, _ = client.scroll(settings.COLLECTION_NAME, limit=1000)
+    return {p.payload["accession"] for p in points}
+
+
+def test_universe_ingests_the_latest_10k_of_each(universe, pipeline) -> None:
+    run = ingest.ingest_universe(["AAPL", "MSFT"])
+
+    assert [r.accession for r in run.ingested] == ["A-25", "M-26"]
+    assert (run.skipped, run.failed) == ([], {})
+    assert universe == [("AAPL", 1), ("MSFT", 1)]  # latest only
+    assert _stored(pipeline) == {"A-25", "M-26"}
+
+
+def test_an_interrupted_run_resumes(universe, pipeline) -> None:
+    ingest.ingest_universe(["AAPL"])  # the run that was cut short
+    count = pipeline.count(settings.COLLECTION_NAME).count
+
+    run = ingest.ingest_universe(["AAPL", "MSFT"])
+
+    assert run.skipped == ["AAPL"]
+    assert [r.accession for r in run.ingested] == ["M-26"]
+    assert pipeline.count(settings.COLLECTION_NAME).count > count
+
+
+def test_a_share_class_sibling_is_not_embedded_twice(
+    universe, pipeline, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    embedded: list[int] = []
+    original = ingest.embed_documents
+    monkeypatch.setattr(
+        ingest,
+        "embed_documents",
+        lambda texts: embedded.append(len(texts)) or original(texts),
+    )
+
+    run = ingest.ingest_universe(["GOOGL", "GOOG"])
+
+    assert [r.ticker for r in run.ingested] == ["GOOGL"]
+    assert run.skipped == ["GOOG"]
+    assert len(embedded) == 1
+
+
+def test_a_failing_ticker_is_listed_and_the_run_continues(universe, pipeline) -> None:
+    run = ingest.ingest_universe(["AAPL", "NOPE", "MSFT"])
+
+    assert [r.ticker for r in run.ingested] == ["AAPL", "MSFT"]
+    assert run.failed == {"NOPE": "FilingNotFoundError: NOPE has no 10-K on EDGAR"}
+    assert "failed NOPE: FilingNotFoundError" in run.summary()
+
+
+def test_cli_tickers_file(
+    universe, pipeline, tmp_path, capsys: pytest.CaptureFixture
+) -> None:
+    good = tmp_path / "good.csv"
+    good.write_text("# source: test\nticker,name\nAAPL,Apple\nMSFT,Microsoft\n")
+    assert ingest.main(["--tickers-file", str(good)]) == 0
+    out = capsys.readouterr().out
+    assert "[1/2] AAPL:" in out
+    assert "2 ingested" in out
+
+    bad = tmp_path / "bad.csv"
+    bad.write_text("ticker\nAAPL\nNOPE\n")
+    assert ingest.main(["--tickers-file", str(bad)]) == 1  # AAPL skipped, NOPE failed
+    assert "1 already stored, 1 failed" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["--tickers-file", "x.csv", "--years", "2"],  # latest 10-K only
+        ["--tickers-file", "x.csv", "--ticker", "AAPL"],  # one source
+    ],
+)
+def test_cli_tickers_file_rejects_conflicting_options(argv: list[str]) -> None:
+    with pytest.raises(SystemExit):
+        ingest.main(argv)

@@ -21,6 +21,7 @@ from finai.ingestion.store import (
     IngestCountError,
     ensure_collection,
     ensure_payload_indexes,
+    filing_stored,
     indexed_years,
     qdrant_client,
     search,
@@ -106,8 +107,9 @@ def test_requests_the_planned_indexes(client: QdrantClient) -> None:
         ("fiscal_year", models.PayloadSchemaType.INTEGER),
         ("section", models.PayloadSchemaType.KEYWORD),
         ("ciks", models.PayloadSchemaType.INTEGER),
+        ("accession", models.PayloadSchemaType.KEYWORD),
     ]
-    assert created == ["ticker", "fiscal_year", "section", "ciks"]
+    assert created == ["ticker", "fiscal_year", "section", "ciks", "accession"]
 
 
 def test_indexed_fields_are_payload_fields_of_the_right_type() -> None:
@@ -520,3 +522,11 @@ def test_share_classes_and_successors_find_one_filing(small: QdrantClient) -> No
     for cik in (34088, 2115436):  # the filer, and the company XOM maps to now
         assert indexed_years(small, cik, name="c") == [2025]
         assert search(small, [1.0, 0.0, 0.0, 0.0], cik, name="c")
+
+
+def test_filing_stored_by_accession(small: QdrantClient) -> None:
+    payloads = chunk_filing(_meta("A-1"), {"Item 1A": "Risk."}, 8, 0)
+    upsert_filing(small, payloads, _vectors(payloads), name="c")
+    assert filing_stored(small, "A-1", name="c")
+    assert not filing_stored(small, "A-2", name="c")
+    assert not filing_stored(small, "A-1", name="never_created")  # first run

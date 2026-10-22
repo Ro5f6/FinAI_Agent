@@ -1,16 +1,26 @@
 """Ingest companies' recent 10-Ks into Qdrant.
 
     python -m finai.ingestion.ingest --ticker AAPL NVDA MSFT --years 3
+    python -m finai.ingestion.ingest --tickers-file reference/sp500-2026-10-20.csv
 
 Fetch, archive, extract, clean, chunk, embed and upsert, in that order; each
 step is the module of the same name. Re-running is safe: chunk IDs are
 deterministic, so a filing's points are overwritten, and ``upsert_filing``
 checks the stored count against the chunks written.
+
+``--tickers-file`` ingests a universe (1.3.31): the latest 10-K of each
+ticker, one filing at a time. A filing whose accession is already stored is
+skipped, so an interrupted run resumes where it stopped, and a share-class
+sibling (GOOG after GOOGL: one filing) isn't embedded twice. A ticker that
+fails is logged and the run continues; the summary lists every failure.
 """
 
 import argparse
+import logging
 import sys
 import time
+from collections.abc import Callable, Sequence
+from pathlib import Path
 from typing import NamedTuple
 
 from edgar.entity import EntityFiling
@@ -28,9 +38,13 @@ from finai.ingestion.parse import extract_filing_items
 from finai.ingestion.store import (
     ensure_collection,
     ensure_payload_indexes,
+    filing_stored,
     qdrant_client,
     upsert_filing,
 )
+from finai.ingestion.universe import read_tickers
+
+log = logging.getLogger(__name__)
 
 # 10-Ks per company when the CLI or the worker (1.3.28) isn't told otherwise.
 DEFAULT_YEARS = 1
@@ -99,21 +113,90 @@ def ingest_ticker(ticker: str, years: int = DEFAULT_YEARS) -> list[IngestResult]
     return [ingest_filing(f, ticker) for f in get_latest_10ks(ticker, years)]
 
 
+class UniverseRun(NamedTuple):
+    """What a ``--tickers-file`` run did."""
+
+    ingested: list[IngestResult]
+    skipped: list[str]  # filing already stored
+    failed: dict[str, str]  # ticker -> reason
+    seconds: float
+
+    def summary(self) -> str:
+        chunks = sum(r.chunks for r in self.ingested)
+        headline = (
+            f"{len(self.ingested)} ingested ({chunks} chunks), "
+            f"{len(self.skipped)} already stored, {len(self.failed)} failed "
+            f"in {self.seconds / 60:.1f} min"
+        )
+        lines = [headline]
+        lines += [f"  failed {t}: {reason}" for t, reason in self.failed.items()]
+        return "\n".join(lines)
+
+
+def ingest_universe(
+    tickers: Sequence[str],
+    on_progress: Callable[[str], None] = lambda line: None,
+) -> UniverseRun:
+    """Ingest the latest 10-K of each ticker, skipping filings already stored."""
+    started = time.monotonic()
+    client = qdrant_client()
+    ingested: list[IngestResult] = []
+    skipped: list[str] = []
+    failed: dict[str, str] = {}
+    for i, ticker in enumerate(tickers, 1):
+        prefix = f"[{i}/{len(tickers)}] {ticker}"
+        try:
+            [filing] = get_latest_10ks(ticker, 1)
+            if filing_stored(client, filing.accession_no):
+                skipped.append(ticker)
+                on_progress(f"{prefix}: {filing.accession_no} already stored")
+                continue
+            result = ingest_filing(filing, ticker)
+        # One company failing must not end a run of 500: EDGAR, parsing,
+        # Voyage and Qdrant each raise their own types. Logged and listed.
+        except Exception as error:
+            failed[ticker] = f"{type(error).__name__}: {error}"
+            log.warning(
+                "%s failed", prefix, exc_info=not isinstance(error, LookupError)
+            )
+            on_progress(f"{prefix}: FAILED {failed[ticker]}")
+            continue
+        ingested.append(result)
+        on_progress(f"{prefix}: {result.summary()}")
+    return UniverseRun(ingested, skipped, failed, time.monotonic() - started)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="python -m finai.ingestion.ingest",
         description="Ingest companies' recent 10-Ks into Qdrant.",
     )
-    parser.add_argument(
-        "--ticker", required=True, nargs="+", help="one or more, e.g. AAPL NVDA"
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument("--ticker", nargs="+", help="one or more, e.g. AAPL NVDA")
+    source.add_argument(
+        "--tickers-file",
+        type=Path,
+        help="a universe CSV (reference/sp500-*.csv): latest 10-K each, resumable",
     )
     parser.add_argument(
         "--years",
         type=int,
-        default=DEFAULT_YEARS,
+        default=None,
         help=f"10-Ks per company, newest first (default {DEFAULT_YEARS})",
     )
     args = parser.parse_args(argv)
+    if args.tickers_file is not None:
+        if args.years is not None:
+            parser.error("--tickers-file ingests the latest 10-K only; drop --years")
+        logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(message)s")
+        run = ingest_universe(
+            read_tickers(args.tickers_file),
+            on_progress=lambda line: print(line, flush=True),
+        )
+        print(run.summary(), flush=True)
+        return 1 if run.failed else 0
+
+    args.years = DEFAULT_YEARS if args.years is None else args.years
     if args.years < 1:
         parser.error("--years must be at least 1")
 
