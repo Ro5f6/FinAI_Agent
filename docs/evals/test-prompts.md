@@ -104,3 +104,92 @@ Notes:
 - Citations name the section, not the passage: the verifier's citation check
   (1.5.5) can confirm the ticker, year and section were retrieved, not that
   a given sentence came from a given chunk.
+
+## 1.3.20 Both tools: "Given NVDA's current P/E, how exposed is it to the risks it lists?"
+
+Run 2026-10-22, 18:01 UTC. **Step 1.3's Done-when prompt.**
+
+| | Haiku 5.5 | Sonnet 5.5 |
+|---|---|---|
+| Tool calls (one planner step, run in parallel) | `get_live_market_data(NVDA)` + `query_company_10k(NVDA, section="Item 1A", k=8)` | same two |
+| Planner calls | 2 (3,666 + 17,043 input tokens) | 2 (3,666 + 16,742) |
+| Output tokens | 1,712 (676 reasoning) | 1,242 |
+| Time | 11.0 s | 10.8 s |
+| Cost | $0.0029 | $0.0532 |
+
+**Done-when met on both:** both tools are called, the answer cites
+`[NVDA 10-K FY2026, Item 1A]` for the risks and the Finnhub quote with its
+time for the price and P/E; neither recommends buying or selling.
+
+**Grounding check:** each model's search was re-run and the facts in its
+answer looked for in its passages: "effectively foreclosed", "4.5 billion",
+22% and 14% customer concentration, 31% of revenue outside the US, Taiwan,
+South Korea, Mellanox, the AI Diffusion rule, cancellable orders, lead
+times, customer financing, China-based competitors, and Sonnet's "write
+down our inventory" and "non-cancellable and non-returnable purchase
+orders". All found. P/E, EPS and prices match the quote.
+
+**A reasoning error in Haiku's answer.** It says "the trailing P/E is well
+above what the fiscal 2026 figures alone would give". The trailing P/E
+(26.85) is *below* the fiscal-2026 P/E (43.37): earnings rose. Haiku labels
+the sentence as its own reasoning, but the direction is wrong. Sonnet gets
+it right: "The multiple fell between the two because earnings rose." No
+number in Haiku's answer is wrong, so the verifier's deterministic number
+check (1.5.4) would not catch this; it is a case for the LLM critic (1.5.8).
+
+Haiku's answer:
+
+> **Short answer:** NVDA trades at about 26.9x trailing earnings, and the 10-K's risk factors point to real exposure to export controls, customer concentration and supply. The filing doesn't link any of these risks to valuation, so the P/E alone doesn't tell you how exposed the stock is.
+>
+> **Valuation**
+> - Price: $212.41, down 4.31% on the day, with a 52-week range of $164.27 to $243.37 [Finnhub quote, 2026-10-22 18:01 UTC].
+> - P/E on trailing-twelve-month EPS of $7.9108 (to 2026-07-26): 26.85 [Finnhub quote, 2026-10-22 18:01 UTC].
+> - P/E on fiscal 2026 EPS of $4.8979 (year ended 2026-01-25): 43.37 [Finnhub quote, 2026-10-22 18:01 UTC].
+>
+> **Exposure to the listed risks** [NVDA 10-K FY2026, Item 1A]
+> - **Export controls (highest-impact).** The company says it is "effectively foreclosed" from China's data center compute market. A $4.5 billion charge in Q1 fiscal 2026 covered H20 excess inventory and purchase obligations. The filing says new controls could leave inventory unsaleable and may still be imposed.
+> - **Customer concentration.** In fiscal 2026, one direct customer was 22% of total revenue and another 14%. Most sales are on purchase orders that customers can cancel or delay with little notice.
+> - **International exposure.** 31% of fiscal 2026 revenue came from outside the US. Wafers are made by third parties outside the US, and the company depends on supply from Taiwan and South Korea.
+> - **Counterparty and credit risk.** The company notes long-term capacity commitments and possible customer financing arrangements. It says it has not entered into any financing arrangements so far.
+> - **Competition and product risk.** The filing says China-based competitors are gaining ground there, and export controls have pushed customers toward alternative suppliers.
+>
+> **What this means for the P/E**
+> - The filing does not give a valuation risk, so I can't say how the market prices these risks.
+> - Because the trailing P/E is well above what the fiscal 2026 figures alone would give, earnings are a key driver of the share price. A shortfall from the export, customer or supply risks above would weigh on the earnings that the multiple rests on. That is my reasoning from the figures, not a finding from the filing.
+
+Sonnet's answer:
+
+> **Short answer:** NVDA's P/E is moderate compared with its own recent earnings. It isn't low enough to offset the risks it lists, and the sources don't measure "exposure" in a way that links the two. I can lay out both sides, but I can't turn them into a single exposure score.
+>
+> **Valuation (price $212.41)**
+> - The trailing-twelve-month P/E is about 26.9, on EPS of $7.9108 for the period ending 2026-07-26. [Finnhub quote, 2026-10-22 18:01 UTC]
+> - The P/E on last fiscal year's EPS is about 43.4, on EPS of $4.8979 for the year ending 2026-01-25. [Finnhub quote, 2026-10-22 18:01 UTC]
+> - The multiple fell between the two because earnings rose. Whether that growth continues depends on the risks below.
+> - The stock was down 4.3% on the day. Its 52-week range is $164.27 to $243.37. [Finnhub quote, 2026-10-22 18:01 UTC]
+>
+> **Main risks in the FY2026 10-K**
+> - **Export controls and China:**
+>   - The filing says NVDA was "effectively foreclosed" from China's data-center compute market at the end of fiscal 2026. [NVDA 10-K FY2026, Item 1A]
+>   - The H20 license requirement led to a $4.5 billion charge in Q1 of fiscal 2026 for excess inventory and purchase obligations. [NVDA 10-K FY2026, Item 1A]
+>   - China's regulators also issued a preliminary antitrust finding tied to the Mellanox acquisition. [NVDA 10-K FY2026, Item 1A]
+>   - Further rules, including a replacement for the AI Diffusion rule, could add restrictions. [NVDA 10-K FY2026, Item 1A]
+> - **Customer concentration:** One direct customer was 22% of FY2026 revenue and another was 14%. Customers can generally cancel or delay orders with little notice. [NVDA 10-K FY2026, Item 1A]
+> - **Supply and demand mismatch:** Long lead times and non-cancellable purchase orders could lead to excess inventory, write-downs and lower gross margins if demand is overestimated. [NVDA 10-K FY2026, Item 1A]
+> - **International and supply-chain dependence:** NVDA relies on suppliers in Taiwan and South Korea. Sales outside the US were 31% of FY2026 revenue. [NVDA 10-K FY2026, Item 1A]
+>
+> **What this means**
+> - At about 27 times trailing earnings, the price already rests on continued earnings growth. The filing says the concentration, export-control and inventory risks could hurt results.
+> - The filing doesn't say how much earnings each risk would cost, so I can't say how far a given event would move the P/E.
+> - The China risk is partly already in the numbers, because the filing says NVDA is already largely shut out of that market. The bigger open risks are new restrictions, losing a top customer, or an inventory write-down.
+>
+> This is a description of what the sources show, not a recommendation.
+
+Notes:
+
+- Both models called the two tools in one step, so the tool node ran them
+  in parallel: two planner calls in total, as for the single-tool prompts.
+- Sonnet rounds the P/Es ("about 26.9", "about 27 times"); the number
+  check must accept rounding (as in 1.3.18).
+- On the one question that needs judgement, Haiku's reasoning slipped and
+  Sonnet's didn't, which supports D-030: Haiku for development runs, Sonnet
+  as the deployed planner.
