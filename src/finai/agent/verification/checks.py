@@ -36,18 +36,28 @@ the forms the system prompt asks for (``prompts``):
   fiscal year and section, or a ``get_financial_history`` result whose
   ``citation`` is exactly this (its Item 8 figures);
 * ``[Finnhub quote, 2026-10-22 20:00 UTC]``: a quote with that time, to
-  the minute;
+  the minute, from the market-data tool or a priced portfolio position;
 * ``[Alpaca prices, to 2026-10-14]``: a price history ending that day;
-* ``[portfolio]``: the portfolio tool was called.
+* ``[portfolio]``: the portfolio or portfolio value tool was called.
 
 A bracket that mentions a source ("10-K", "Finnhub", "Alpaca", "portfolio")
 but matches none of these forms is flagged too: the verifier can't check
 it. Markdown links, ``[text](url)``, aren't citations.
+Portfolio math (1.5.6)
+----------------------
+Portfolio values and gains come from ``get_portfolio_value``; this check
+recomputes them independently from each position's shares, average cost
+and price, in Decimal, and holds the draft to the cent: an amount shown in
+cents within 2% of a recomputed one must equal it exactly, so "$7,889.76"
+for $7,889.75 is caught, which the general rounding rule would allow only
+at a coarser precision. A draft copying a figure the tool got wrong is
+caught too, because the comparison is with the recomputation, not the tool.
 """
 
 import math
 import re
 from collections.abc import Iterable, Iterator
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any, NamedTuple
 
 from pydantic import BaseModel, ConfigDict
@@ -233,12 +243,14 @@ def check_citations(
     filing_citations = {
         o.get("citation") for o in _successful(results, "get_financial_history")
     }
+    valuations = _successful(results, "get_portfolio_value")
+    quoted = [*_successful(results, "get_live_market_data")]
+    quoted += [p for v in valuations for p in v.get("positions", [])]
     quote_times = {
-        str(o.get("quote_time", ""))[:16].replace("T", " ")
-        for o in _successful(results, "get_live_market_data")
+        str(o.get("quote_time") or "")[:16].replace("T", " ") for o in quoted
     }
     price_ends = {o.get("end_date") for o in _successful(results, "get_price_history")}
-    has_portfolio = bool(_successful(results, "get_user_portfolio"))
+    has_portfolio = bool(_successful(results, "get_user_portfolio") or valuations)
 
     issues = []
     seen = set()
@@ -286,6 +298,69 @@ def check_citations(
                 Issue(
                     claim=citation,
                     reason=f"{citation} isn't in a citation form the verifier can check",
+                )
+            )
+    return issues
+
+
+_CENT = Decimal("0.01")
+_NEAR = Decimal("0.02")  # a cent figure within 2% of a portfolio amount is one
+
+
+def _decimal(value: Any) -> Decimal | None:
+    try:
+        return Decimal(str(value)) if value is not None else None
+    except InvalidOperation:
+        return None
+
+
+def _recompute(valuation: dict[str, Any]) -> set[Decimal]:
+    """Cost basis, value and gain per position and in total, from scratch."""
+    amounts: set[Decimal] = set()
+    total_cost = total_value = Decimal(0)
+    for position in valuation.get("positions", []):
+        shares, avg_cost, price = (
+            _decimal(position.get(k)) for k in ("shares", "avg_cost", "price")
+        )
+        if shares is None or avg_cost is None:
+            continue
+        cost = (shares * avg_cost).quantize(_CENT, rounding=ROUND_HALF_UP)
+        amounts.add(cost)
+        if price is None:
+            continue
+        value = (shares * price).quantize(_CENT, rounding=ROUND_HALF_UP)
+        amounts |= {value, value - cost, price}
+        total_cost += cost
+        total_value += value
+    amounts |= {total_cost, total_value, total_value - total_cost}
+    return {abs(a) for a in amounts if a}
+
+
+def check_portfolio_math(
+    draft: str, tool_results: Iterable[dict[str, Any]]
+) -> list[Issue]:
+    """An issue for each portfolio amount in ``draft`` that is off by a cent or more."""
+    expected: set[Decimal] = set()
+    for valuation in _successful(list(tool_results), "get_portfolio_value"):
+        expected |= _recompute(valuation)
+    if not expected:
+        return []
+    issues = []
+    for match in _NUMBER.finditer(_CITATION.sub(" ", draft)):
+        digits = match["num"].replace(",", "")
+        if not match["cur"] or match["scale"] or "." not in digits:
+            continue
+        if len(digits.split(".")[1]) != 2:  # only amounts shown to the cent
+            continue
+        amount = Decimal(digits)
+        near = [e for e in expected if abs(e - amount) <= _NEAR * e]
+        if near and amount not in expected:
+            closest = min(near, key=lambda e: abs(e - amount))
+            issues.append(
+                Issue(
+                    claim=match.group(0).strip(),
+                    reason=f"{match.group(0).strip()} doesn't match the portfolio "
+                    f"recomputed in Python: ${closest:,}",
                 )
             )
     return issues

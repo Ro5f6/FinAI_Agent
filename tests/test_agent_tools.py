@@ -34,6 +34,7 @@ def test_the_tools_are_registered() -> None:
         "get_user_portfolio",
         "get_financial_history",
         "get_price_history",
+        "get_portfolio_value",
     ]
 
 
@@ -360,3 +361,62 @@ def test_price_history_failures_are_returned_not_raised(
 def test_price_period_outside_the_enum_is_rejected() -> None:
     with pytest.raises(ValueError, match="1y"):
         get_price_history.invoke({"ticker": "AAPL", "period": "10y"})
+
+
+# --- portfolio value tool -----------------------------------------------------------
+
+from finai.tools.agent_tools import get_portfolio_value
+
+
+def _market(price: float):
+    return market_data.MarketData(
+        ticker="X", name=None, price=price, price_currency="USD", change_pct=None,
+        market_cap=None, market_cap_currency=None, week_52_high=None, week_52_low=None,
+        pe_ttm=None, pe_annual=None, pe_source=None, eps_ttm=None, eps_ttm_period_end=None,
+        eps_annual=None, eps_annual_period_end=None, eps_currency=None, eps_per=None,
+        quote_time=dt.datetime(2026, 10, 22, 20, 0, tzinfo=dt.UTC),
+    )  # fmt: skip
+
+
+def test_portfolio_value_prices_the_users_holdings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    prices = {"AAPL": 258.45, "NVDA": 212.21}
+    monkeypatch.setattr(
+        market_data, "get_live_market_data", lambda t: _market(prices[t])
+    )
+
+    result = get_portfolio_value.invoke(
+        {}, config={"configurable": {"user_id": "demo"}}
+    )
+
+    assert result["total_market_value"] == "7889.75"  # 2,584.50 + 5,305.25
+    assert result["total_gain"] == "3675.25"
+    assert [p["quote_time"] for p in result["positions"]] == [
+        "2026-10-22T20:00:00Z"
+    ] * 2
+    assert result["complete"] is True
+
+
+def test_portfolio_value_without_a_quote_is_incomplete(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def quote(ticker):
+        if ticker == "NVDA":
+            raise market_data.MarketDataError("rate limit")
+        return _market(258.45)
+
+    monkeypatch.setattr(market_data, "get_live_market_data", quote)
+    result = get_portfolio_value.invoke(
+        {}, config={"configurable": {"user_id": "demo"}}
+    )
+
+    assert result["complete"] is False
+    assert result["total_market_value"] == "2584.50"  # AAPL only
+    assert result["positions"][1]["note"] == "no quote"
+
+
+def test_portfolio_value_takes_the_user_only_from_the_config() -> None:
+    assert "user_id" not in _schema(get_portfolio_value).get("properties", {})
+    with pytest.raises(MissingUserError):
+        get_portfolio_value.invoke({"user_id": "demo"}, config={"configurable": {}})

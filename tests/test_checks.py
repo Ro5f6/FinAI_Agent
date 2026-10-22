@@ -262,3 +262,64 @@ def test_a_failed_tool_call_supports_no_citation() -> None:
     assert _cited("[Finnhub quote, 2026-10-22 20:00 UTC]", results=failed) == [
         "[Finnhub quote, 2026-10-22 20:00 UTC]"
     ]
+
+
+# --- portfolio math (1.5.6) ---------------------------------------------------------
+
+from finai.agent.verification.checks import check_portfolio_math
+
+VALUATION = {
+    "tool": "get_portfolio_value",
+    "status": "success",
+    "output": {
+        "positions": [
+            {"ticker": "AAPL", "shares": "10", "avg_cost": "175.20", "price": "258.45",
+             "quote_time": "2026-10-22T20:00:00Z", "market_value": "2584.50"},
+            {"ticker": "NVDA", "shares": "25", "avg_cost": "98.50", "price": "212.21",
+             "quote_time": "2026-10-22T20:00:00Z", "market_value": "5305.25"},
+        ],
+        "total_market_value": "7889.75",
+    },
+}  # fmt: skip
+
+
+def _math(draft: str, results=(VALUATION,)) -> list[str]:
+    return [i.claim for i in check_portfolio_math(draft, results)]
+
+
+def test_correct_portfolio_amounts_pass() -> None:
+    draft = (
+        "Your holdings are worth $7,889.75: AAPL $2,584.50 and NVDA $5,305.25, "
+        "against a cost of $4,214.50, a gain of $3,675.25."
+    )
+    assert _math(draft) == []
+
+
+@pytest.mark.parametrize("wrong", ["$7,889.76", "$7,898.75", "$5,305.52", "$3,675.00"])
+def test_an_amount_off_by_a_cent_or_more_is_flagged(wrong: str) -> None:
+    [issue] = check_portfolio_math(f"Your holdings are worth {wrong}.", [VALUATION])
+    assert issue.claim == wrong
+    assert "recomputed in Python" in issue.reason
+
+
+def test_a_wrong_figure_from_the_tool_is_caught_by_the_recomputation() -> None:
+    """The tool said 7,889.57; shares x price says 7,889.75."""
+    bugged = {
+        **VALUATION,
+        "output": {**VALUATION["output"], "total_market_value": "7889.57"},
+    }
+    assert _math("Your holdings are worth $7,889.57.", [bugged]) == ["$7,889.57"]
+
+
+def test_amounts_unrelated_to_the_portfolio_are_left_to_the_number_check() -> None:
+    assert _math("NVDA's charge was $4.5 billion; the stock is at $212.21.") == []
+    assert _math("Your holdings are worth $7,889.76.", results=[]) == []
+
+
+def test_valuation_quote_times_support_finnhub_citations() -> None:
+    assert (
+        check_citations(
+            "[Finnhub quote, 2026-10-22 20:00 UTC] [portfolio]", [VALUATION], []
+        )
+        == []
+    )

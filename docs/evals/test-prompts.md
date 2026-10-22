@@ -235,3 +235,26 @@ called, and its Done-when requires exactly that.
 | 1.3.19 10-K risks | pass, grounded, $0.0021 | pass, grounded, $0.0540 |
 | 1.3.20 P/E and risks | tools and citations pass; reasoning error on P/E direction; $0.0029 | pass, grounded, $0.0532 |
 | 1.3.21 out of scope | declines, $0.0004 | declines, $0.0083 |
+
+## Portfolio: "How is my portfolio doing?" (1.5.6 and 2.2.7, run early)
+
+Run 2026-10-22 against the stub holdings (10 AAPL at $175.20, 25 NVDA at
+$98.50) and quotes at 2026-10-22 20:00 UTC (AAPL $348.22, NVDA $212.21).
+
+Both models called only `get_portfolio_value` and did no arithmetic. Every
+figure in both answers matches a direct calculation: AAPL 10 x 348.22 =
+3,482.20, gain 1,730.20 on 1,752.00 (98.8%); NVDA 25 x 212.21 = 5,305.25,
+gain 2,842.75 on 2,462.50 (115.4%); total 8,787.45 against 4,214.50, up
+4,572.95 (108.5%). Number, citation and portfolio-math checks: no issues
+on either answer.
+
+Sonnet's answer:
+
+> Your portfolio is up about 108.5%. It's worth $8,787.45 against a cost basis of $4,214.50, a gain of $4,572.95 [portfolio]. All prices are from the 2026-10-22 20:00 UTC quote.
+>
+> | Holding | Shares | Avg cost | Price | Market value | Gain | Gain % |
+> |---|---|---|---|---|---|---|
+> | AAPL | 10 | $175.20 | $348.22 | $3,482.20 | $1,730.20 | 98.8% |
+> | NVDA | 25 | $98.50 | $212.21 | $5,305.25 | $2,842.75 | 115.4% |
+>
+> Both positions are well ahead of what you paid [portfolio]. NVDA is the larger holding and has the larger gain. I can also look at how either stock has performed over time, or at what their latest 10-K filings say.

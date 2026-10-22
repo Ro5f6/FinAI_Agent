@@ -17,6 +17,7 @@ The numeric tools return a ``citation`` string built from their own result,
 so the model copies the source rather than composing it.
 """
 
+from decimal import Decimal
 from typing import Any, Literal
 
 from langchain_core.runnables import RunnableConfig
@@ -194,10 +195,50 @@ def get_price_history(ticker: str, period: prices.Period = "1y") -> dict[str, An
     }
 
 
+def _quote(ticker: str) -> portfolio.Quote | None:
+    """A holding's live price, or None if Finnhub has none for it."""
+    try:
+        data = market_data.get_live_market_data(ticker)
+    except (market_data.TickerNotFoundError, market_data.MarketDataError):
+        return None
+    return portfolio.Quote(
+        price=Decimal(str(data.price)),
+        currency=data.price_currency,
+        quote_time=data.quote_time,
+    )
+
+
+# Plain @tool, like get_user_portfolio: no arguments for the model to pass.
+@tool
+def get_portfolio_value(config: RunnableConfig) -> dict[str, Any]:
+    """Value the signed-in user's holdings at live prices, with gains and losses.
+
+    For each position: shares, average cost, cost basis, current price and
+    its quote time, market value, gain (negative for a loss) and gain_pct.
+    Then totals over the positions with a price. Amounts are exact decimals
+    as strings, in USD, to the cent; gain_pct is a fraction (0.064 is 6.4%).
+    complete is false when a holding had no price: its value fields are
+    null and the totals leave it out, so say so. Every figure is computed
+    here; quote them as given. Cite [portfolio] and the Finnhub quote time.
+    Takes no arguments: the user comes from the session.
+    """
+    user_id = (config.get("configurable") or {}).get("user_id")
+    if not user_id:
+        raise MissingUserError("no user_id in the run's config")
+    holdings = portfolio.get_user_portfolio(user_id=user_id)
+    quotes = {
+        h.ticker: quote
+        for h in holdings.holdings
+        if (quote := _quote(h.ticker)) is not None
+    }
+    return portfolio.value_portfolio(holdings, quotes).model_dump(mode="json")
+
+
 TOOLS = [
     get_live_market_data,
     query_company_10k,
     get_user_portfolio,
     get_financial_history,
     get_price_history,
+    get_portfolio_value,
 ]

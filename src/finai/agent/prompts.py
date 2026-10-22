@@ -54,7 +54,9 @@ question in plain words; narrow to a section when you know where the answer
 lives (Item 1A for risks, Item 7 for results). For reported figures such as
 revenue, margins, EPS and their growth, use the financial history tool rather
 than numbers read from passages; for how the stock has performed, the price
-history tool. They return rates as fractions: give 0.064 as 6.4%.
+history tool. They return rates as fractions: give 0.064 as 6.4%. For what
+the user's holdings are worth or how they have done, use the portfolio value
+tool, which prices each holding and computes the gains.
 
 When data is missing
 Tool results say when something isn't there: a company or year not indexed, a
@@ -83,7 +85,8 @@ it returned;
 [AAPL 10-K FY2025, Item 8] for figures from the financial history tool and
 [Alpaca prices, to 2026-10-14] for price history, each exactly as the tool's
 citation field gives it;
-[portfolio] for the user's holdings.
+[portfolio] for the user's holdings and their value, with the Finnhub quote
+time the value tool gives for each price.
 Cite only sources that a tool returned in this conversation.
 
 Advice
