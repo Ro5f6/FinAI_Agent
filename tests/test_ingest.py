@@ -12,7 +12,7 @@ import pytest
 from qdrant_client import QdrantClient
 
 from finai.config import settings
-from finai.ingestion import ingest
+from finai.ingestion import fetch, ingest
 from finai.ingestion.fetch import FilingNotFoundError
 
 # The offline pipeline uses in-memory Qdrant, which ignores payload indexes
@@ -32,6 +32,8 @@ class _Filing:
 
     form = "10-K"
 
+    cik = 320193
+
     def __init__(self, year: int = 2025) -> None:
         self.accession_no = f"0000320193-{year % 100}-000079"
         self.filing_date = dt.date(year, 10, 31)
@@ -49,6 +51,8 @@ def _filings(ticker: str, n: int) -> list[_Filing]:
 def pipeline(monkeypatch: pytest.MonkeyPatch) -> QdrantClient:
     client = QdrantClient(":memory:")
     monkeypatch.setattr(ingest, "get_latest_10ks", _filings)
+    # The ticker's current company, from SEC's cached table (no request).
+    monkeypatch.setattr(fetch, "ticker_cik", lambda t: 320193)
     monkeypatch.setattr(ingest, "archive_filing", lambda filing, ticker: None)
     monkeypatch.setattr(
         ingest,
@@ -75,6 +79,18 @@ def test_ingest_stores_every_chunk(pipeline: QdrantClient) -> None:
     assert result.sections == ("Item 1A",)
     assert result.chunks > 1
     assert pipeline.count(settings.COLLECTION_NAME).count == result.chunks
+
+
+def test_chunks_carry_the_filer_and_current_ciks(
+    pipeline: QdrantClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """XOM's case: filed by one CIK, the ticker now maps to another (D-043)."""
+    monkeypatch.setattr(fetch, "ticker_cik", lambda t: 2115436)
+    ingest.ingest_ticker("XOM")
+
+    points, _ = pipeline.scroll(settings.COLLECTION_NAME, limit=100)
+    assert points
+    assert {tuple(p.payload["ciks"]) for p in points} == {(320193, 2115436)}
 
 
 def test_cross_reference_items_are_reported(pipeline: QdrantClient) -> None:

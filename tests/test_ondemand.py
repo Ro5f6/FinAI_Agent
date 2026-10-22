@@ -18,6 +18,7 @@ import redis
 
 from finai.config import settings
 from finai.ingestion import jobs, worker
+from finai.ingestion.fetch import ticker_cik
 from finai.ingestion.store import indexed_years, qdrant_client
 from finai.tools.agent_tools import query_company_10k
 
@@ -77,7 +78,7 @@ def test_unindexed_company_is_fetched_and_then_searchable(
     # Done: the status key is gone, the job acknowledged, the chunks stored.
     assert not isolated.exists(f"test:ingest:status:{TICKER}")
     assert isolated.xpending("test:ingest:jobs", worker.GROUP)["pending"] == 0
-    [year] = indexed_years(qdrant_client(), TICKER)
+    [year] = indexed_years(qdrant_client(), ticker_cik(TICKER))  # by company
     assert year == 2025
     assert any(settings.RAW_FILINGS_DIR.joinpath(TICKER).iterdir())  # archived
 

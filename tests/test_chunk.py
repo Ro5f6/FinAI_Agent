@@ -309,7 +309,14 @@ def test_payload_carries_the_planned_fields() -> None:
         "chunk_index": 0,
         "accession": "0000320193-25-000079",
         "text": "Supply risk.",
+        "ciks": [],
     }
+
+
+def test_payload_carries_the_company_ciks() -> None:
+    meta = _META._replace(ciks=(34088, 2115436))
+    [payload] = chunk_filing(meta, {"Item 1A": "Supply risk."}, 100, 10)
+    assert payload.ciks == [34088, 2115436]
 
 
 def test_chunk_index_restarts_in_each_section() -> None:

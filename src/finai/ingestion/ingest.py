@@ -18,7 +18,12 @@ from edgar.entity import EntityFiling
 from finai.ingestion.chunk import chunk_filing
 from finai.ingestion.clean import clean_items
 from finai.ingestion.embed import embed_documents
-from finai.ingestion.fetch import archive_filing, filing_meta, get_latest_10ks
+from finai.ingestion.fetch import (
+    archive_filing,
+    company_ciks,
+    filing_meta,
+    get_latest_10ks,
+)
 from finai.ingestion.parse import extract_filing_items
 from finai.ingestion.store import (
     ensure_collection,
@@ -61,7 +66,7 @@ class IngestResult(NamedTuple):
 def ingest_filing(filing: EntityFiling, ticker: str) -> IngestResult:
     """Run one filing through every step and store its chunks."""
     started = time.monotonic()
-    meta = filing_meta(filing, ticker)
+    meta = filing_meta(filing, ticker)._replace(ciks=company_ciks(filing, ticker))
     archive_filing(filing, ticker)
 
     cleaned = clean_items(extract_filing_items(filing))

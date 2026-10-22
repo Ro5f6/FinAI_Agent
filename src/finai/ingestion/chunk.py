@@ -33,7 +33,7 @@ from typing import NamedTuple
 
 import tiktoken
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from finai.config import settings
 from finai.ingestion.fetch import FilingMeta
@@ -354,6 +354,10 @@ class ChunkPayload(BaseModel):
     chunk_index: int
     accession: str
     text: str
+    # Searches filter on these, not on ticker: share classes (GOOGL, GOOG)
+    # are one company and one filing (D-043). Empty only on points stored
+    # before the field existed, until ``backfill`` adds it.
+    ciks: list[int] = Field(default_factory=list)
 
     def point_id(self) -> str:
         """Qdrant point ID: the same chunk always gets the same ID.
@@ -388,6 +392,7 @@ def chunk_filing(
             chunk_index=index,
             accession=meta.accession,
             text=text,
+            ciks=list(meta.ciks),
         )
         for section, body in sections.items()
         for index, text in enumerate(chunk_section(body, max_tokens, overlap_tokens))

@@ -19,7 +19,7 @@ runs a question on a checkpointed thread; memory verified in process (1.3.15)
 and stored in Redis, surviving a process restart (1.3.16-1.3.17). **1.3.18-1.3.21
 (the test prompts) need Claude, so wait for Anthropic credits.** 1.3.22 done:
 `tools/financials.py` (headline figures and revenue breakdowns); 1.3.23 done
-(`tools/trends.py`); 1.3.24 done (`tools/prices.py`); 1.3.25 done: `get_financial_history` and `get_price_history` are agent tools, five in all (D-036). 1.3.26 done: tickers resolve to a 10-K filer before anything is fetched or queued (`fetch.resolve_ticker`, D-037). 1.3.27 done: a 10-K search for a company not indexed queues it once (`ingestion/jobs.py`, D-038). 1.3.28 done: `python -m finai.ingestion.worker` ingests queued companies (D-039); CRCL went from queued to searchable in 7.7 s. 1.3.29 done: new companies are limited to 5 per user and 50 in total per UTC day, checked in the queue script (D-040). 1.3.30 done: on-demand ingestion is tested end to end (`tests/test_ondemand.py`: FIG queued, ingested by the worker, then searchable); it found that a missing collection crashed the first search. On-demand ingestion (1.3.26-1.3.30) is complete. 1.3.31 done: `reference/sp500-2026-10-20.csv` (503 tickers, 500 companies) and `python -m finai.ingestion.universe` resolve 501 of 503 (D-041). **Next: 1.3.32** (`--tickers-file`, then run the S&P 500 ingest) or the Claude test prompts 1.3.18-1.3.21 once Anthropic credits are bought. Direction (D-042): a local MVP first, with a Chainlit chat interface (new step 2.4) calling the FastAPI endpoint, run with `docker compose up` (3.1); AWS after. Step 1.3's
+(`tools/trends.py`); 1.3.24 done (`tools/prices.py`); 1.3.25 done: `get_financial_history` and `get_price_history` are agent tools, five in all (D-036). 1.3.26 done: tickers resolve to a 10-K filer before anything is fetched or queued (`fetch.resolve_ticker`, D-037). 1.3.27 done: a 10-K search for a company not indexed queues it once (`ingestion/jobs.py`, D-038). 1.3.28 done: `python -m finai.ingestion.worker` ingests queued companies (D-039); CRCL went from queued to searchable in 7.7 s. 1.3.29 done: new companies are limited to 5 per user and 50 in total per UTC day, checked in the queue script (D-040). 1.3.30 done: on-demand ingestion is tested end to end (`tests/test_ondemand.py`: FIG queued, ingested by the worker, then searchable); it found that a missing collection crashed the first search. On-demand ingestion (1.3.26-1.3.30) is complete. 1.3.31 done: `reference/sp500-2026-10-20.csv` (503 tickers, 500 companies) and `python -m finai.ingestion.universe` resolve 501 of 503 (D-041). Searches now go by company CIK, not ticker (D-043): chunks carry `ciks`, the 640 existing points were backfilled with `python -m finai.ingestion.backfill`. **Next: 1.3.32** (`--tickers-file`, then run the S&P 500 ingest) or the Claude test prompts 1.3.18-1.3.21 once Anthropic credits are bought. Direction (D-042): a local MVP first, with a Chainlit chat interface (new step 2.4) calling the FastAPI endpoint, run with `docker compose up` (3.1); AWS after. Step 1.3's
 Done when: memory survives a restart (met); prompt 1.3.20 calls both tools and
 the answer cites 10-K sections (needs Claude). Running it with Claude waits for
 Anthropic credits. 1.3.7's live call (`-m anthropic`) waits for Anthropic credits. Added outside the original order: 1.2.21, reranking.
@@ -463,6 +463,17 @@ those 9 filings (FY2023-2026), 487 points.
 
 ## Verified Qdrant client (qdrant-client 1.19.1, server v1.19.1)
 
+- **List fields:** a `FieldCondition` with `MatchValue` on a list payload
+  (`ciks: [34088, 2115436]`) matches if any element equals the value, on the
+  server and in `:memory:`; an `INTEGER` payload index on the field works,
+  and so do facets filtered by it (they need an index on the faceted field:
+  400 "No appropriate index for faceting" otherwise). `set_payload(...,
+  points=Filter(...), wait=True)` adds a field to matching points without
+  touching vectors. `IsEmptyCondition(is_empty=PayloadField(key="ciks"))`
+  selects points lacking the field.
+- Chunk IDs are `uuid5(accession:section:index)`, with no ticker: two
+  share-class tickers of one company produce the same IDs for its 10-K, so
+  before D-043 ingesting GOOG overwrote GOOGL's chunks.
 - **A missing collection:** `facet` on the server raises
   `qdrant_client.http.exceptions.UnexpectedResponse` (404, "Collection ...
   doesn't exist!"); the in-memory client raises `ValueError` ("Collection ...

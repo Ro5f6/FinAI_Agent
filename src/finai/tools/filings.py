@@ -17,6 +17,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from finai.ingestion.embed import embed_query
+from finai.ingestion.fetch import ticker_cik
 from finai.ingestion.jobs import request_ingestion
 from finai.ingestion.parse import TARGET_ITEMS
 from finai.ingestion.store import indexed_years, qdrant_client, search
@@ -103,7 +104,11 @@ def query_company_10k(
 
     symbol = ticker.strip().upper()
     client = qdrant_client()
-    years = indexed_years(client, symbol)
+    # By company, not ticker: GOOG finds the 10-K ingested as GOOGL (D-043).
+    # A ticker SEC doesn't know has no CIK, and goes to the queue, which
+    # says so.
+    cik = ticker_cik(symbol)
+    years = indexed_years(client, cik) if cik is not None else []
     if not years:
         if user_id is None:
             return TenKSearchResult(
@@ -136,7 +141,7 @@ def query_company_10k(
     hits = search(
         client,
         embed_query(question),
-        symbol,
+        cik,
         section=section,
         fiscal_year=year,
         k=k,
@@ -151,7 +156,10 @@ def query_company_10k(
         passages=[
             TenKPassage(
                 text=h.chunk.text,
-                ticker=h.chunk.ticker,
+                # The ticker asked about, so the citation matches the
+                # question even when the filing was stored under a sibling
+                # share class.
+                ticker=symbol,
                 form=h.chunk.form,
                 fiscal_year=h.chunk.fiscal_year,
                 filing_date=h.chunk.filing_date,

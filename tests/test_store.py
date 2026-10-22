@@ -4,6 +4,8 @@ Offline tests use qdrant-client's in-memory mode. Tests marked ``qdrant`` use
 the server from docker compose: ``uv run pytest -m qdrant``.
 """
 
+import typing
+
 import pytest
 import voyageai
 from qdrant_client import QdrantClient, models
@@ -103,8 +105,9 @@ def test_requests_the_planned_indexes(client: QdrantClient) -> None:
         ("ticker", models.PayloadSchemaType.KEYWORD),
         ("fiscal_year", models.PayloadSchemaType.INTEGER),
         ("section", models.PayloadSchemaType.KEYWORD),
+        ("ciks", models.PayloadSchemaType.INTEGER),
     ]
-    assert created == ["ticker", "fiscal_year", "section"]
+    assert created == ["ticker", "fiscal_year", "section", "ciks"]
 
 
 def test_indexed_fields_are_payload_fields_of_the_right_type() -> None:
@@ -116,7 +119,14 @@ def test_indexed_fields_are_payload_fields_of_the_right_type() -> None:
     }
     for field, schema in PAYLOAD_INDEXES.items():
         assert field in fields
-        assert fields[field].annotation is python_type[schema]
+        annotation = fields[field].annotation
+        # A list field is indexed by its element type (ciks: list[int]).
+        element = (
+            typing.get_args(annotation)[0]
+            if typing.get_origin(annotation) is list
+            else annotation
+        )
+        assert element is python_type[schema]
 
 
 def test_qdrant_client_is_shared(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -139,7 +149,9 @@ def test_qdrant_client_is_shared(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _meta(accession: str) -> FilingMeta:
-    return FilingMeta("AAPL", accession, "10-K", "2025-10-31", "2025-09-27", 2025)
+    return FilingMeta(
+        "AAPL", accession, "10-K", "2025-10-31", "2025-09-27", 2025, (320193,)
+    )
 
 
 def _filing(accession: str, n_paragraphs: int) -> list[ChunkPayload]:
@@ -194,26 +206,29 @@ def test_fewer_chunks_on_reingest_removes_the_extras(small: QdrantClient) -> Non
     assert small.count("c").count == 5  # the other filing's 2 points are untouched
 
 
+AAPL, NVDA = 320193, 1045810
+
+
 def _seed_two_companies(client: QdrantClient) -> None:
     """AAPL FY2025 and FY2024 plus NVDA FY2025, with chunk i's vector pointing
     at angle i so the nearest chunk is predictable."""
-    for ticker, accession, year in (
-        ("AAPL", "A-25", 2025),
-        ("AAPL", "A-24", 2024),
-        ("NVDA", "N-25", 2025),
+    for ticker, accession, year, cik in (
+        ("AAPL", "A-25", 2025, AAPL),
+        ("AAPL", "A-24", 2024, AAPL),
+        ("NVDA", "N-25", 2025, NVDA),
     ):
         meta = FilingMeta(
-            ticker, accession, "10-K", f"{year}-10-31", f"{year}-09-27", year
+            ticker, accession, "10-K", f"{year}-10-31", f"{year}-09-27", year, (cik,)
         )
         sections = {"Item 1A": "Risk one.\n\nRisk two.", "Item 7": "Results one."}
         payloads = chunk_filing(meta, sections, 8, 0)
         upsert_filing(client, payloads, _vectors(payloads), name="c")
 
 
-def test_search_is_limited_to_the_ticker(small: QdrantClient) -> None:
+def test_search_is_limited_to_the_company(small: QdrantClient) -> None:
     _seed_two_companies(small)
 
-    hits = search(small, [1.0, 0.0, 0.0, 0.0], "aapl", k=10, name="c")
+    hits = search(small, [1.0, 0.0, 0.0, 0.0], AAPL, k=10, name="c")
 
     assert hits
     assert {h.chunk.ticker for h in hits} == {"AAPL"}
@@ -226,7 +241,7 @@ def test_search_filters_section_and_year(small: QdrantClient) -> None:
     hits = search(
         small,
         [1.0, 0.0, 0.0, 0.0],
-        "AAPL",
+        AAPL,
         section="Item 1A",
         fiscal_year=2024,
         k=10,
@@ -239,7 +254,7 @@ def test_search_filters_section_and_year(small: QdrantClient) -> None:
 def test_search_returns_best_first_and_respects_k(small: QdrantClient) -> None:
     _seed_two_companies(small)
 
-    hits = search(small, [1.0, 1.0, 0.0, 0.0], "AAPL", k=3, name="c")
+    hits = search(small, [1.0, 1.0, 0.0, 0.0], AAPL, k=3, name="c")
 
     assert len(hits) == 3
     assert [h.score for h in hits] == sorted((h.score for h in hits), reverse=True)
@@ -252,7 +267,7 @@ def test_supply_chain_question_finds_apples_risk_factors() -> None:
     from finai.ingestion.embed import embed_query
 
     vector = embed_query("What are Apple's main supply chain risks?")
-    hits = search(qdrant_client(), vector, "AAPL")
+    hits = search(qdrant_client(), vector, 320193)  # Apple's CIK
 
     assert len(hits) == 5
     assert hits[0].chunk.section == "Item 1A"
@@ -263,9 +278,9 @@ def test_indexed_years_are_newest_first(small: QdrantClient) -> None:
     """Facets come back by count; the years must come back by year."""
     _seed_two_companies(small)
 
-    assert indexed_years(small, "aapl", name="c") == [2025, 2024]
-    assert indexed_years(small, "NVDA", name="c") == [2025]
-    assert indexed_years(small, "TSLA", name="c") == []
+    assert indexed_years(small, AAPL, name="c") == [2025, 2024]
+    assert indexed_years(small, NVDA, name="c") == [2025]
+    assert indexed_years(small, 1318605, name="c") == []  # TSLA: not stored
 
 
 def _seed_ranked(client: QdrantClient, n: int = 40) -> list[ChunkPayload]:
@@ -287,7 +302,7 @@ def test_rerank_reorders_the_candidates(small: QdrantClient, monkeypatch) -> Non
 
     monkeypatch.setattr(embed, "rerank", reverse)
 
-    hits = search(small, [1.0, 0.0, 0.0, 0.0], "AAPL", k=3, name="c", question="supply")
+    hits = search(small, [1.0, 0.0, 0.0, 0.0], AAPL, k=3, name="c", question="supply")
 
     assert seen == [settings.RERANK_CANDIDATES]
     # The reranker's top pick was the embedding's 30th.
@@ -301,7 +316,7 @@ def test_without_a_question_there_is_no_rerank(
     _seed_ranked(small)
     monkeypatch.setattr(embed, "rerank", lambda q, t: pytest.fail("reranked"))
 
-    hits = search(small, [1.0, 0.0, 0.0, 0.0], "AAPL", k=3, name="c")
+    hits = search(small, [1.0, 0.0, 0.0, 0.0], AAPL, k=3, name="c")
 
     assert [h.chunk.chunk_index for h in hits] == [0, 1, 2]
     assert all(h.relevance is None for h in hits)
@@ -326,7 +341,7 @@ def test_transient_rerank_failure_falls_back_to_embedding_order(
 
     monkeypatch.setattr(embed, "rerank", fail)
 
-    hits = search(small, [1.0, 0.0, 0.0, 0.0], "AAPL", k=3, name="c", question="supply")
+    hits = search(small, [1.0, 0.0, 0.0, 0.0], AAPL, k=3, name="c", question="supply")
 
     assert [h.chunk.chunk_index for h in hits] == [0, 1, 2]
     assert all(h.relevance is None for h in hits)
@@ -351,7 +366,7 @@ def test_configuration_errors_are_not_hidden(
     monkeypatch.setattr(embed, "rerank", fail)
 
     with pytest.raises(type(error)):
-        search(small, [1.0, 0.0, 0.0, 0.0], "AAPL", k=3, name="c", question="supply")
+        search(small, [1.0, 0.0, 0.0, 0.0], AAPL, k=3, name="c", question="supply")
 
 
 def test_rerank_client_fails_fast() -> None:
@@ -491,4 +506,17 @@ def test_collection_on_the_compose_qdrant() -> None:
 def test_indexed_years_of_a_missing_collection_is_empty() -> None:
     """A fresh deployment before the first ingest: no collection yet. The
     first question must queue the company, not fail (found by 1.3.30)."""
-    assert indexed_years(QdrantClient(":memory:"), "AAPL", name="never_created") == []
+    assert indexed_years(QdrantClient(":memory:"), AAPL, name="never_created") == []
+
+
+def test_share_classes_and_successors_find_one_filing(small: QdrantClient) -> None:
+    """D-043: one filing, found by every CIK it carries, stored once."""
+    meta = FilingMeta(
+        "XOM", "X-25", "10-K", "2026-02-18", "2025-12-31", 2025, (34088, 2115436)
+    )
+    payloads = chunk_filing(meta, {"Item 1A": "Oil price risk."}, 8, 0)
+    upsert_filing(small, payloads, _vectors(payloads), name="c")
+
+    for cik in (34088, 2115436):  # the filer, and the company XOM maps to now
+        assert indexed_years(small, cik, name="c") == [2025]
+        assert search(small, [1.0, 0.0, 0.0, 0.0], cik, name="c")

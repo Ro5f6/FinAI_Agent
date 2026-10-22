@@ -179,6 +179,17 @@ def test_other_redis_errors_are_raised() -> None:
         worker.run(once=True, client=client)
 
 
+def test_indexed_means_the_company_is_stored(monkeypatch: pytest.MonkeyPatch) -> None:
+    """GOOG's job is skipped when GOOGL's filing is stored: one company (D-043)."""
+    monkeypatch.setattr(worker, "ticker_cik", {"GOOG": 1652044, "GOOGL": 1652044}.get)
+    monkeypatch.setattr(worker, "qdrant_client", lambda: None)
+    monkeypatch.setattr(
+        worker, "indexed_years", lambda client, cik: [2025] if cik == 1652044 else []
+    )
+    assert worker._is_indexed("GOOG")
+    assert not worker._is_indexed("ZZZZQ")  # SEC doesn't know it
+
+
 def test_cli_rejects_unknown_options() -> None:
     with pytest.raises(SystemExit):
         worker.main(["--bogus"])

@@ -29,6 +29,11 @@ def _vector(axis: int) -> list[float]:
     return v
 
 
+_AAPL = 320193
+# Ticker -> CIK as SEC's table has it; GOOG and GOOGL are one company.
+_CIKS = {"AAPL": _AAPL, "GOOGL": 1652044, "GOOG": 1652044, "TSLA": 1318605}
+
+
 @pytest.fixture
 def index(monkeypatch: pytest.MonkeyPatch) -> QdrantClient:
     """AAPL FY2025 and FY2024, each with Item 1A and Item 7 chunks.
@@ -43,7 +48,7 @@ def index(monkeypatch: pytest.MonkeyPatch) -> QdrantClient:
         (2024, "0000320193-24-000123"),
     ):
         meta = FilingMeta(
-            "AAPL", accession, "10-K", f"{year}-10-31", f"{year}-09-27", year
+            "AAPL", accession, "10-K", f"{year}-10-31", f"{year}-09-27", year, (_AAPL,)
         )
         sections = {
             "Item 1A": f"Supply risk in {year}.\n\nSingle sources in {year}.",
@@ -53,6 +58,7 @@ def index(monkeypatch: pytest.MonkeyPatch) -> QdrantClient:
         vectors = [_vector(0 if p.section == "Item 1A" else 1) for p in payloads]
         upsert_filing(client, payloads, vectors)
     monkeypatch.setattr(filings, "qdrant_client", lambda: client)
+    monkeypatch.setattr(filings, "ticker_cik", lambda t: _CIKS.get(t))
     monkeypatch.setattr(filings, "embed_query", lambda question: _vector(0))
     # Keep the embedding order; the reranker itself is tested in test_store.
     monkeypatch.setattr(
@@ -205,3 +211,37 @@ def test_live_latest_year_answers() -> None:
     )
     assert "Data Center revenue for fiscal year 2024 was up" in nvda.passages[0].text
     assert all(p.relevance is not None for p in nvda.passages)  # reranked
+
+
+def test_a_share_class_finds_its_siblings_filing(
+    index: QdrantClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """GOOGL's 10-K is stored once; asking about GOOG finds it and isn't queued."""
+    meta = FilingMeta(
+        "GOOGL", "0001652044-26-000012", "10-K", "2026-02-05", "2025-12-31", 2025,
+        (1652044,),
+    )  # fmt: skip
+    payloads = chunk_filing(meta, {"Item 1A": "Search competition risk."}, 8, 0)
+    upsert_filing(index, payloads, [_vector(0)] * len(payloads))
+    request = _ingestion("queued")
+    monkeypatch.setattr(filings, "request_ingestion", request)
+
+    result = query_company_10k("goog", "competition risks", user_id="alice")
+
+    assert result.status == "ok"
+    assert result.fiscal_year == 2025
+    assert result.passages
+    # Cited as the ticker asked about; the filing is GOOGL's (one company).
+    assert {p.ticker for p in result.passages} == {"GOOG"}
+    assert {p.accession for p in result.passages} == {"0001652044-26-000012"}
+    assert request.requested == []
+
+
+def test_a_ticker_sec_does_not_know_goes_to_the_queue(
+    index: QdrantClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    request = _ingestion("unknown_ticker", "ZZZZQ is not a ticker")
+    monkeypatch.setattr(filings, "request_ingestion", request)
+    result = query_company_10k("ZZZZQ", "risks", user_id="alice")
+    assert result.status == "unknown_ticker"
+    assert request.requested == [("ZZZZQ", "alice")]

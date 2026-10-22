@@ -25,6 +25,8 @@ PAYLOAD_INDEXES: dict[str, models.PayloadSchemaType] = {
     "ticker": models.PayloadSchemaType.KEYWORD,
     "fiscal_year": models.PayloadSchemaType.INTEGER,
     "section": models.PayloadSchemaType.KEYWORD,
+    # A list per point; a condition matches if any element does.
+    "ciks": models.PayloadSchemaType.INTEGER,
 }
 
 
@@ -182,7 +184,7 @@ def upsert_filing(
 def search(
     client: QdrantClient,
     vector: Sequence[float],
-    ticker: str,
+    cik: int,
     section: str | None = None,
     fiscal_year: int | None = None,
     k: int = 5,
@@ -196,17 +198,14 @@ def search(
     from 14 to 17 and top-1 from 9 to 14 (docs/evals/retrieval-reranking.md).
     If the reranker is briefly unavailable, the embedding order is returned.
 
-    ``ticker`` is required: every 10-K search is about one company, and an
+    ``cik`` is required: every 10-K search is about one company, and an
     unfiltered search would rank other companies' risk factors alongside its
-    own. ``section`` and ``fiscal_year`` narrow it further, using the payload
+    own. It is the company's CIK (``fetch.ticker_cik``), not a ticker, so
+    GOOGL and GOOG find the one filing (D-043). ``section`` and ``fiscal_year`` narrow it further, using the payload
     indexes from ``ensure_payload_indexes``. ``QdrantClient.search`` no longer
     exists in qdrant-client 1.19; this uses ``query_points``.
     """
-    must = [
-        models.FieldCondition(
-            key="ticker", match=models.MatchValue(value=ticker.upper())
-        )
-    ]
+    must = [_company(cik)]
     if section is not None:
         must.append(
             models.FieldCondition(key="section", match=models.MatchValue(value=section))
@@ -238,10 +237,12 @@ def search(
     return [hits[i]._replace(relevance=score) for i, score in order[:k]]
 
 
-def indexed_years(
-    client: QdrantClient, ticker: str, name: str | None = None
-) -> list[int]:
-    """Fiscal years with chunks for ``ticker``, newest first; [] if none.
+def _company(cik: int) -> models.FieldCondition:
+    return models.FieldCondition(key="ciks", match=models.MatchValue(value=cik))
+
+
+def indexed_years(client: QdrantClient, cik: int, name: str | None = None) -> list[int]:
+    """Fiscal years with chunks for company ``cik``, newest first; [] if none.
 
     Uses Qdrant's facet count over the integer index, so nothing is scanned.
     Facets come back ordered by count, not value, hence the sort.
@@ -253,7 +254,7 @@ def indexed_years(
     """
     name = name or settings.COLLECTION_NAME
     try:
-        response = _facet_years(client, ticker, name)
+        response = _facet_years(client, cik, name)
     except (UnexpectedResponse, ValueError):
         if not client.collection_exists(name):
             return []
@@ -261,17 +262,11 @@ def indexed_years(
     return sorted((int(hit.value) for hit in response.hits), reverse=True)
 
 
-def _facet_years(client: QdrantClient, ticker: str, name: str) -> models.FacetResponse:
+def _facet_years(client: QdrantClient, cik: int, name: str) -> models.FacetResponse:
     return client.facet(
         collection_name=name,
         key="fiscal_year",
-        facet_filter=models.Filter(
-            must=[
-                models.FieldCondition(
-                    key="ticker", match=models.MatchValue(value=ticker.upper())
-                )
-            ]
-        ),
+        facet_filter=models.Filter(must=[_company(cik)]),
         limit=100,
         exact=True,
     )

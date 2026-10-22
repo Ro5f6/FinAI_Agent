@@ -42,6 +42,7 @@ import redis
 
 from finai.config import settings
 from finai.ingestion import jobs
+from finai.ingestion.fetch import ticker_cik
 from finai.ingestion.ingest import DEFAULT_YEARS, IngestResult, ingest_ticker
 from finai.ingestion.store import indexed_years, qdrant_client
 
@@ -104,7 +105,9 @@ def _set_status(client: redis.Redis, ticker: str, status: jobs.JobStatus) -> Non
 
 
 def _is_indexed(ticker: str) -> bool:
-    return bool(indexed_years(qdrant_client(), ticker))
+    """Whether the ticker's company is stored, under any of its tickers."""
+    cik = ticker_cik(ticker)
+    return cik is not None and bool(indexed_years(qdrant_client(), cik))
 
 
 def process(

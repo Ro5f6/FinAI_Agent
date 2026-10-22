@@ -457,7 +457,10 @@ def test_archive_metadata_matches_filing_meta(tmp_path: Path) -> None:
     _, metadata = archive_paths("AAPL", filing.accession_no, root=tmp_path)
     archived = json.loads(metadata.read_text())
 
-    assert filing_meta(filing, "AAPL")._asdict().items() <= archived.items()
+    facts = filing_meta(filing, "AAPL")._asdict()
+    del facts["ciks"]  # a search key, set by the ingest, not archived
+    assert facts.items() <= archived.items()
+    assert "ciks" not in archived
 
 
 def test_archive_skips_download_when_already_cached(tmp_path: Path) -> None:

@@ -164,6 +164,33 @@ def _bundled_cik(symbol: str) -> int | None:
     return int(cik) if cik is not None else None
 
 
+def ticker_cik(ticker: str) -> int | None:
+    """The company a ticker belongs to now, from cached tables: no SEC request.
+
+    SEC's live table first (downloaded once a day), then edgartools' bundled
+    one. Share classes map to one company: GOOGL and GOOG are both 1652044.
+    Searches go by this CIK, not the ticker (D-043).
+    """
+    symbol = ticker.strip().upper()
+    live = _live_ciks()
+    if live is not None and (cik := live.get(_ticker_key(symbol))) is not None:
+        return cik
+    return _bundled_cik(symbol)
+
+
+def company_ciks(filing: EntityFiling, ticker: str) -> tuple[int, ...]:
+    """The CIKs a filing's chunks are found by: the filer's and the ticker's.
+
+    Usually one. XOM's 10-Ks were filed by Exxon Mobil Corp (34088) while the
+    ticker now maps to ExxonMobil Holdings Corp (2115436); storing both lets
+    a search for XOM, which looks up 2115436, find them.
+    """
+    ciks = {int(filing.cik)}
+    if (current := ticker_cik(ticker)) is not None:
+        ciks.add(current)
+    return tuple(sorted(ciks))
+
+
 def _recent(filed: object, today: dt.date) -> bool:
     return today - dt.date.fromisoformat(str(filed)[:10]) <= PREDECESSOR_MAX_AGE
 
@@ -338,6 +365,9 @@ class FilingMeta(NamedTuple):
     filing_date: str  # ISO date; a datetime.date would not serialise to JSON
     period_of_report: str
     fiscal_year: int
+    # The companies the chunks are found by (``company_ciks``); set by the
+    # ingest, empty where only the filing's own facts are needed.
+    ciks: tuple[int, ...] = ()
 
 
 def filing_meta(filing: EntityFiling, ticker: str) -> FilingMeta:
@@ -379,10 +409,12 @@ def archive_filing(filing: EntityFiling, ticker: str, root: Path | None = None) 
     payload = filing_html(filing).encode("utf-8")
     document.write_bytes(gzip.compress(payload, compresslevel=9))
 
+    facts = filing_meta(filing, ticker)._asdict()
+    del facts["ciks"]  # a search key (D-043), not a fact about the filing
     metadata.write_text(
         json.dumps(
             {
-                **filing_meta(filing, ticker)._asdict(),
+                **facts,
                 # Lets the archive be pruned and later re-fetched from EDGAR
                 # with proof the bytes are identical.
                 "sha256": hashlib.sha256(payload).hexdigest(),
