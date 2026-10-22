@@ -56,7 +56,9 @@ def feedback_message(issues: Sequence[Issue]) -> HumanMessage:
             f"{listed}\n\n"
             "Answer the question again, fixing them. Use only what the tools "
             "returned, and call tools if you need more. If something can't be "
-            "supported, say it isn't available rather than stating it."
+            "supported, say it isn't available rather than stating it. The "
+            "user never saw the draft or this review: write the answer as your "
+            "first, without mentioning a correction."
         ),
         additional_kwargs={FEEDBACK_FLAG: True},
     )

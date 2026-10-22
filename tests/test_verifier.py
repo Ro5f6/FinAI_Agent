@@ -70,3 +70,16 @@ def test_without_a_critic_passing_the_checks_passes() -> None:
 def test_current_question_is_the_latest_user_message() -> None:
     assert current_question(STATE["messages"]) == "What's NVDA at?"
     assert current_question([]) == ""
+
+
+def test_feedback_tells_the_planner_the_user_never_saw_the_draft() -> None:
+    """Live, Sonnet opened its corrected answer with "I made a typo in my first
+    answer", though the user only sees the final answer."""
+    from finai.agent.verification.verifier import feedback_message, is_feedback
+
+    message = feedback_message(
+        [Issue(claim="$12.212", reason="not in any tool result")]
+    )
+    assert is_feedback(message)
+    assert "- $12.212: not in any tool result" in message.content
+    assert "never saw the draft" in message.content

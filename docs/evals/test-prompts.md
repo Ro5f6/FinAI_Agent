@@ -258,3 +258,31 @@ Sonnet's answer:
 > | NVDA | 25 | $98.50 | $212.21 | $5,305.25 | $2,842.75 | 115.4% |
 >
 > Both positions are well ahead of what you paid [portfolio]. NVDA is the larger holding and has the larger gain. I can also look at how either stock has performed over time, or at what their latest 10-K filings say.
+
+## With the verifier (1.5, run 2026-10-22)
+
+Sonnet 5.5 plans; the verifier runs the deterministic checks, then the
+Haiku 5.5 critic (effort medium). Runner: `data/experiments/run_verified.py`.
+
+| Prompt | Verdict | Revisions | Time (without verifier) |
+|---|---|---|---|
+| 1.3.18 price | pass (critic) | 0 | 7.4 s (4.2 s) |
+| 1.3.19 10-K risks | pass (critic) | 0 | 16.0 s (12.2 s) |
+| 1.3.20 P/E and risks | pass (critic) after 2 revisions | 2 | 42.1 s (10.8 s) |
+| Portfolio | pass (critic) | 0 | 5.9 s |
+| Poem | pass (critic) | 0 | 4.3 s (2.0 s) |
+
+On 1.3.20 the critic sent back two interpretive sentences: "the filing
+treats [China] as a lost opportunity rather than a new threat", which the
+10-K doesn't say, and "the gap between the two P/Es comes from earnings
+growth", a cause stated as fact rather than marked as the assistant's
+reading. The third draft passed. Cost: ~4x the time on the one question
+that needs judgement; the others add 2-4 s for the critic.
+
+**Step 1.5's Done-when, live:** the planner's first draft had its price
+replaced ($212.21 -> $12.212). The number check caught it ("$12.212 is not
+in any tool result"), the feedback went back, real Sonnet corrected the
+price, and the critic passed the second draft: 1 revision, ~9 s, in 3 of 3
+runs. The first corrected answer began "I made a typo in my first answer";
+the user never sees drafts, so the feedback now says so, and the next two
+runs answered plainly.
