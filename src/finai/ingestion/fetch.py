@@ -143,6 +143,9 @@ def _live_ciks() -> dict[str, int] | None:
         if _sec_tickers and time.monotonic() - _sec_tickers[0] < SEC_TICKERS_TTL_S:
             return _sec_tickers[1]
     try:
+        # SEC refuses requests without a contact identity. A 10-K search can
+        # reach here before anything else has set it (found in 1.3.33).
+        configure_edgar()
         rows = download_json(build_company_tickers_url()).values()
     # httpx failures, edgartools' rate-limit and transport errors, bad JSON.
     except (httpx.HTTPError, EdgarError, ValueError) as error:

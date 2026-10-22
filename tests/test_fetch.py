@@ -294,6 +294,22 @@ def test_unknown_ticker(edgar_tables) -> None:
     assert (r.status, r.cik) == ("unknown_ticker", None)
 
 
+def test_live_table_sets_the_sec_identity_first(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """SEC rejects anonymous requests; a search may be the first caller."""
+    calls: list[str] = []
+    monkeypatch.setattr(fetch, "configure_edgar", lambda: calls.append("identity"))
+    monkeypatch.setattr(
+        fetch,
+        "download_json",
+        lambda url: calls.append("download") or {"0": {"cik_str": 1, "ticker": "A"}},
+    )
+    monkeypatch.setattr(fetch, "_sec_tickers", None)
+    fetch._live_ciks()
+    assert calls == ["identity", "download"]
+
+
 def test_live_table_is_cached_for_a_day(monkeypatch: pytest.MonkeyPatch) -> None:
     downloads = []
     clock = [1000.0]
