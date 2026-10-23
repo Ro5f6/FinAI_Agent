@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.13,<3.14"
 dependencies = [
     "edgartools>=5.60.0",
+    "fastapi>=0.161.1",
     "httpx>=0.28.1",
     "langchain-anthropic>=1.7.5",
     "langchain-core>=1.6.9",
@@ -15,7 +16,9 @@ dependencies = [
     "pydantic-settings>=2.15.0",
     "qdrant-client>=1.19.1",
     "redis>=8.1.0",
+    "sse-starlette>=3.5.0",
     "tiktoken>=0.14.0",
+    "uvicorn[standard]>=0.54.0",
     "voyageai>=0.5.0",
 ]
 
