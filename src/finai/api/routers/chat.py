@@ -3,7 +3,9 @@
 ``POST /api/v1/chat`` with a ``ChatRequest`` answers with server-sent
 events (``finai.api.streaming``): progress while the agent works, then the
 verified answer in pieces, then ``done``. The caller's identity comes from
-``finai.api.deps``, never from the request body.
+``finai.api.deps``, never from the request body, and the conversation is
+stored under that user plus the session ID (2.1.7), so a session ID from
+another user opens a new conversation rather than theirs.
 """
 
 import uuid
@@ -14,6 +16,7 @@ from fastapi import APIRouter, Depends
 from langgraph.graph.state import CompiledStateGraph
 from sse_starlette import EventSourceResponse
 
+from finai.agent.session import thread_id_for
 from finai.api.deps import current_user, get_graph
 from finai.api.schemas import ChatRequest
 from finai.api.streaming import answer_events
@@ -35,7 +38,7 @@ async def chat(
             graph,
             request.message,
             user_id=user_id,
-            thread_id=session_id,
+            thread_id=thread_id_for(user_id, session_id),
             session_id=session_id,
         ):
             yield event.to_sse()

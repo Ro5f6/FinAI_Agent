@@ -33,6 +33,23 @@ def app_version() -> str:
         return "unknown"
 
 
+def thread_id_for(user_id: str, session_id: str) -> str:
+    """The checkpointer's thread for one user's session (2.1.7).
+
+    The session ID comes from the client, so on its own it would let anyone
+    continue anyone's conversation; prefixing the authenticated user makes
+    each user's sessions their own. The mapping can't collide: a session ID
+    has no ":" (``api.schemas.SessionId``), so a thread ID splits at its last
+    ":" into exactly one user and session. Colons and dashes in thread IDs
+    are escaped by the Redis checkpointer's search (verified live).
+    """
+    if not user_id or not session_id:
+        raise ValueError("user_id and session_id are both required")
+    if ":" in session_id:
+        raise ValueError(f"a session ID can't contain ':': {session_id!r}")
+    return f"{user_id}:{session_id}"
+
+
 def thread_config(*, user_id: str, thread_id: str) -> dict[str, Any]:
     """The run config for one user's thread.
 

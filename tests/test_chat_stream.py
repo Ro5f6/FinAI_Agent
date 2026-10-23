@@ -137,3 +137,34 @@ def test_pieces_rejoin_to_the_text_and_keep_their_size() -> None:
     assert "".join(parts) == text
     assert all(len(p) <= 30 + 15 for p in parts)  # a piece ends at the next word
     assert pieces("") == []
+
+
+# --- sessions are per user (2.1.7) ---------------------------------------------------
+
+from finai.api.deps import current_user
+
+
+def test_a_session_id_continues_only_its_own_users_conversation() -> None:
+    """Bob sending Alice's session ID starts his own conversation."""
+    client = _client()
+    app = client.app
+    asked: list[int] = []
+
+    def as_user(user: str):
+        app.dependency_overrides[current_user] = lambda: user
+
+    with client:
+        graph = app.state.graph
+        for user in ("alice", "alice", "bob"):
+            as_user(user)
+            client.post(
+                "/api/v1/chat", json={"message": f"{user} asks", "session_id": "shared"}
+            )
+        alice = graph.get_state({"configurable": {"thread_id": "alice:shared"}}).values
+        bob = graph.get_state({"configurable": {"thread_id": "bob:shared"}}).values
+        asked.append(sum(1 for m in alice["messages"] if m.type == "human"))
+        asked.append(sum(1 for m in bob["messages"] if m.type == "human"))
+        bob_saw_alice = any("alice" in str(m.content) for m in bob["messages"])
+
+    assert asked == [2, 1]  # Alice's two questions on her thread, Bob's one on his
+    assert not bob_saw_alice

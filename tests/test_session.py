@@ -130,3 +130,32 @@ def test_answer_text_skips_reasoning_blocks() -> None:
 def test_answer_text_refuses_a_thread_without_an_answer() -> None:
     with pytest.raises(NoAnswerError, match="ToolMessage"):
         answer_text({"messages": [ToolMessage(content="{}", tool_call_id="c1")]})
+
+
+# --- session to thread (2.1.7) -------------------------------------------------------
+
+from finai.agent.session import thread_id_for
+
+
+def test_the_thread_is_the_user_then_the_session() -> None:
+    assert thread_id_for("alice", "3f2b9c") == "alice:3f2b9c"
+
+
+def test_two_users_with_one_session_id_get_two_threads() -> None:
+    assert thread_id_for("alice", "shared") != thread_id_for("bob", "shared")
+
+
+def test_the_mapping_cannot_collide() -> None:
+    """With no ":" in a session ID, a thread splits back into one pair."""
+    pairs = [("a", "b-c"), ("a:b", "c"), ("a-b", "c"), ("x.y", "z_1")]
+    threads = [thread_id_for(user, session) for user, session in pairs]
+    assert len(set(threads)) == len(pairs)
+    assert [tuple(t.rsplit(":", 1)) for t in threads] == pairs
+
+
+@pytest.mark.parametrize(
+    ("user_id", "session_id"), [("", "s"), ("u", ""), ("u", "a:b")]
+)
+def test_invalid_parts_are_refused(user_id: str, session_id: str) -> None:
+    with pytest.raises(ValueError):
+        thread_id_for(user_id, session_id)
