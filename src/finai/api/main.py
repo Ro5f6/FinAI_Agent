@@ -19,7 +19,7 @@ from fastapi import FastAPI
 from langgraph.graph.state import CompiledStateGraph
 
 from finai.agent.session import app_version
-from finai.api.routers import chat
+from finai.api.routers import chat, health
 
 GraphFactory = Callable[[], AbstractAsyncContextManager[CompiledStateGraph]]
 
@@ -49,6 +49,7 @@ def create_app(graph_factory: GraphFactory = agent_graph) -> FastAPI:
         description="Investment research answers from 10-K filings and market data.",
         lifespan=lifespan,
     )
+    app.include_router(health.router)
     app.include_router(chat.router)
     return app
 

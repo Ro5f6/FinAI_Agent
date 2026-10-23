@@ -135,3 +135,98 @@ def test_the_graph_is_built_once_and_shared_by_every_request() -> None:
         assert graphs.closed == 0  # open while serving
     assert seen == [graphs.graph] * 3
     assert (graphs.built, graphs.closed) == (1, 1)  # closed at shutdown
+
+
+# --- health probes (2.1.5) ----------------------------------------------------------
+
+import time
+
+from finai.api.routers import health
+
+
+def _client() -> TestClient:
+    return TestClient(create_app(_ScriptedGraph()))
+
+
+def _fail(error: Exception):
+    def check() -> None:
+        raise error
+
+    return check
+
+
+def test_healthz_checks_nothing_else(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(health, "CHECKS", {"qdrant": _fail(AssertionError("called"))})
+    response = _client().get("/healthz")
+    assert (response.status_code, response.json()) == (200, {"status": "ok"})
+
+
+def test_readyz_when_both_answer(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        health, "CHECKS", {"qdrant": lambda: None, "redis": lambda: None}
+    )
+    response = _client().get("/readyz")
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "ready",
+        "checks": {"qdrant": "ok", "redis": "ok"},
+    }
+
+
+def test_readyz_is_503_and_names_the_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        health,
+        "CHECKS",
+        {"qdrant": lambda: None, "redis": _fail(ConnectionError("refused"))},
+    )
+    response = _client().get("/readyz")
+    assert response.status_code == 503
+    assert response.json() == {
+        "status": "not_ready",
+        "checks": {"qdrant": "ok", "redis": "unreachable: ConnectionError"},
+    }
+    assert "refused" not in response.text  # no internal detail
+
+
+def test_a_hung_dependency_fails_the_probe_quickly(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The probe answers at the timeout. The stuck check's thread can't be
+    stopped, so it is timed inside the event loop, then released."""
+    import asyncio
+    import threading
+
+    from fastapi import Response
+
+    release = threading.Event()
+    monkeypatch.setattr(health, "CHECK_TIMEOUT_S", 0.2)
+    monkeypatch.setattr(
+        health, "CHECKS", {"qdrant": lambda: release.wait(10), "redis": lambda: None}
+    )
+
+    async def probe():
+        response = Response()
+        started = time.monotonic()
+        body = await health.readyz(response)
+        elapsed = time.monotonic() - started
+        release.set()
+        return response, body, elapsed
+
+    response, body, elapsed = asyncio.run(probe())
+
+    assert elapsed < 0.5
+    assert response.status_code == 503
+    assert body["checks"]["qdrant"] == "unreachable: no answer in 0.2 s"
+
+
+def test_probes_need_no_api_key() -> None:
+    """Kubernetes probes don't authenticate (the chat endpoint will, 2.1.9)."""
+    assert _client().get("/healthz", headers={}).status_code == 200
+
+
+@pytest.mark.qdrant
+@pytest.mark.redis
+def test_live_readyz_with_compose_services() -> None:
+    response = TestClient(create_app(_ScriptedGraph())).get("/readyz")
+    assert response.status_code == 200, response.json()
+    assert response.json()["status"] == "ready"
