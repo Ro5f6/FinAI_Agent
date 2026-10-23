@@ -127,3 +127,9 @@ def test_max_revisions_cannot_be_negative(clean_env: pytest.MonkeyPatch) -> None
     clean_env.setenv("MAX_REVISIONS", "-1")
     with pytest.raises(ValueError, match="MAX_REVISIONS"):
         Settings(_env_file=None)
+
+
+def test_chat_message_limit_default(clean_env: pytest.MonkeyPatch) -> None:
+    for name, value in REQUIRED_ENV.items():
+        clean_env.setenv(name, value)
+    assert Settings(_env_file=None).CHAT_MAX_MESSAGE_CHARS == 2000

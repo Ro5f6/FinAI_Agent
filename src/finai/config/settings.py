@@ -157,6 +157,16 @@ class Settings(BaseSettings):
         description="Hard ceiling on planner/tool iterations per query.",
     )
 
+    # --- API (2.1) ---
+    CHAT_MAX_MESSAGE_CHARS: int = Field(
+        default=2_000,
+        ge=1,
+        description=(
+            "Longest question the chat endpoint accepts, in characters. Longer "
+            "requests get 422 before the model is called."
+        ),
+    )
+
     # --- Verifier (1.5) ---
     VERIFIER_MODEL: str = Field(
         default="claude-haiku-5-5",
