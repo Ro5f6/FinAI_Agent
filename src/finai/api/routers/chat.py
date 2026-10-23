@@ -19,7 +19,7 @@ from sse_starlette import EventSourceResponse
 from finai.agent.session import thread_id_for
 from finai.api.deps import current_user, get_graph
 from finai.api.schemas import ChatRequest
-from finai.api.streaming import answer_events
+from finai.api.streaming import safe_answer_events
 
 router = APIRouter(prefix="/api/v1", tags=["chat"])
 
@@ -34,7 +34,7 @@ async def chat(
     session_id = request.session_id or uuid.uuid4().hex
 
     async def stream() -> AsyncIterator:
-        async for event in answer_events(
+        async for event in safe_answer_events(
             graph,
             request.message,
             user_id=user_id,

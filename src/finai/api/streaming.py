@@ -15,10 +15,21 @@ yields each node's output as it finishes, and each update becomes events:
 Verified against langgraph 1.2.14: each update is ``{node: update}``, the
 planner's draft is an ``AIMessage`` without tool calls, a revise adds a
 feedback message, and the final answer is read from the saved state.
+
+When a run fails (2.1.8), the response has already started, so the failure
+becomes a last ``error`` event with an ID that is also in the log; nothing
+internal is sent. The thread is repaired first: a failure while tools ran
+leaves Claude's tool request without results, and the Claude API rejects
+such a conversation (400 "tool_use ids were found without tool_result
+blocks", checked live), so every later question on it would fail too.
+``repair_thread`` answers each pending call with an error result and adds a
+short reply, recorded as the graph's ending so the run counts as finished.
 """
 
 import json
+import logging
 import re
+import uuid
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -29,6 +40,12 @@ from finai.agent.session import answer_text, thread_config
 from finai.agent.state import turn_input
 from finai.agent.verification.verifier import is_feedback
 from finai.api.schemas import StreamEvent
+
+log = logging.getLogger(__name__)
+
+ERROR_MESSAGE = "Something went wrong while answering. Please try again."
+FAILED_RESULT = "Not run: the request failed."
+FAILED_REPLY = "I couldn't answer that because something went wrong. Please ask again."
 
 # The answer goes out in pieces of about this many characters, split at
 # whitespace, so a client can render it as it arrives.
@@ -141,3 +158,73 @@ async def answer_events(
             "revisions": state.get("revision_count", 0),
         },
     )
+
+
+def _unanswered_calls(messages: list[Any]) -> list[dict[str, Any]]:
+    """Tool calls of the last tool-requesting reply that have no result."""
+    for index in range(len(messages) - 1, -1, -1):
+        message = messages[index]
+        if isinstance(message, AIMessage) and message.tool_calls:
+            answered = {
+                m.tool_call_id
+                for m in messages[index + 1 :]
+                if isinstance(m, ToolMessage)
+            }
+            return [c for c in message.tool_calls if c["id"] not in answered]
+    return []
+
+
+async def repair_thread(graph: CompiledStateGraph, config: dict[str, Any]) -> None:
+    """Leave a failed run's thread valid for the next question."""
+    state = await graph.aget_state(config)
+    messages = state.values.get("messages", [])
+    if not messages:
+        return
+    results = [
+        ToolMessage(
+            content=FAILED_RESULT, tool_call_id=c["id"], name=c["name"], status="error"
+        )
+        for c in _unanswered_calls(messages)
+    ]
+    # Recorded as the step-limit node, whose only edge is to the end, so the
+    # thread has no pending step and the next question starts afresh.
+    await graph.aupdate_state(
+        config,
+        {"messages": [*results, AIMessage(content=FAILED_REPLY)]},
+        as_node="stop_at_limit",
+    )
+
+
+async def safe_answer_events(
+    graph: CompiledStateGraph,
+    question: str,
+    *,
+    user_id: str,
+    thread_id: str,
+    session_id: str,
+) -> AsyncIterator[StreamEvent]:
+    """``answer_events``, with any failure turned into a final ``error`` event."""
+    try:
+        async for event in answer_events(
+            graph, question, user_id=user_id, thread_id=thread_id, session_id=session_id
+        ):
+            yield event
+    # A disconnecting client cancels the stream (CancelledError, not an
+    # Exception), which isn't caught: there is no one left to tell.
+    except Exception:
+        error_id = uuid.uuid4().hex[:12]
+        log.exception("chat answer failed [%s] thread=%s", error_id, thread_id)
+        try:
+            await repair_thread(
+                graph, thread_config(user_id=user_id, thread_id=thread_id)
+            )
+        except Exception:
+            log.exception("repairing thread %s after [%s] failed", thread_id, error_id)
+        yield StreamEvent(
+            type="error",
+            data={
+                "message": ERROR_MESSAGE,
+                "error_id": error_id,
+                "session_id": session_id,
+            },
+        )

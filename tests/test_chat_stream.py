@@ -168,3 +168,154 @@ def test_a_session_id_continues_only_its_own_users_conversation() -> None:
 
     assert asked == [2, 1]  # Alice's two questions on her thread, Bob's one on his
     assert not bob_saw_alice
+
+
+# --- failures mid-stream (2.1.8) -----------------------------------------------------
+
+import logging
+
+from langchain_core.messages import ToolMessage
+
+from finai.api import streaming
+
+
+class StrictPlanner:
+    """Refuses a conversation with an unanswered tool request, as the Claude
+    API does (400 "tool_use ids were found without tool_result blocks")."""
+
+    def __init__(self) -> None:
+        self.questions = 0
+
+    def __call__(self, messages, config=None) -> AIMessage:
+        answered = {m.tool_call_id for m in messages if isinstance(m, ToolMessage)}
+        for m in messages:
+            for call in getattr(m, "tool_calls", None) or []:
+                if call["id"] not in answered:
+                    if m is messages[-1]:
+                        break  # the request just made; the tools node answers it
+                    raise ValueError(
+                        "tool_use ids were found without tool_result blocks"
+                    )
+        if messages[-1].type == "human":
+            self.questions += 1
+            return AIMessage(
+                "",
+                tool_calls=[
+                    {
+                        "id": f"c{self.questions}",
+                        "name": "get_live_market_data",
+                        "args": {"ticker": "NVDA"},
+                    }
+                ],
+            )
+        return AIMessage(RIGHT)
+
+
+def _strict_client(planner: StrictPlanner) -> TestClient:
+    @asynccontextmanager
+    async def graph():
+        yield build_graph(
+            RunnableLambda(planner), checkpointer=InMemorySaver(), critic=None
+        )
+
+    return TestClient(create_app(graph))
+
+
+def test_a_failure_mid_stream_ends_with_an_error_event(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    def broken(ticker):
+        raise RuntimeError("internal detail: qdrant at 10.0.0.5 refused")
+
+    monkeypatch.setattr(market_data, "get_live_market_data", broken)
+    with caplog.at_level(logging.ERROR, logger="finai.api.streaming"):
+        events = _ask(_strict_client(StrictPlanner()), session_id="s1")
+
+    kind, data = events[-1]
+    assert kind == "error"
+    assert data["message"] == streaming.ERROR_MESSAGE
+    assert data["session_id"] == "s1"
+    assert "done" not in [k for k, _ in events]
+    assert "10.0.0.5" not in json.dumps(events)  # nothing internal reaches the client
+    # The same ID is in the log, with the traceback.
+    assert data["error_id"] in caplog.text
+    assert "RuntimeError" in caplog.text
+
+
+def test_the_thread_still_works_after_a_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Without the repair, the next question would hit the dangling tool call."""
+    planner = StrictPlanner()
+    client = _strict_client(planner)
+    real_quote = market_data.get_live_market_data
+    calls = {"n": 0}
+
+    def flaky(ticker):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("timeout")
+        return real_quote(ticker)
+
+    monkeypatch.setattr(market_data, "get_live_market_data", flaky)
+    with client:
+        first = _events(
+            client.post("/api/v1/chat", json={"message": "q1", "session_id": "s"}).text
+        )
+        second = _events(
+            client.post("/api/v1/chat", json={"message": "q2", "session_id": "s"}).text
+        )
+        state = client.app.state.graph.get_state(
+            {"configurable": {"thread_id": "demo:s"}}
+        )
+
+    assert first[-1][0] == "error"
+    assert second[-1][0] == "done"
+    assert "".join(d["text"] for k, d in second if k == "token") == RIGHT
+    # The failed question was closed off: an error result and a short reply.
+    results = [m for m in state.values["messages"] if isinstance(m, ToolMessage)]
+    assert results[0].content == streaming.FAILED_RESULT
+    assert results[0].status == "error"
+    assert any(m.content == streaming.FAILED_REPLY for m in state.values["messages"])
+    assert state.next == ()  # nothing left pending
+
+
+def test_a_model_failure_before_any_tool_also_reports_and_recovers() -> None:
+    attempts = {"n": 0}
+    good = StrictPlanner()
+
+    def planner(messages, config=None):
+        attempts["n"] += 1
+        if attempts["n"] == 1:
+            raise TimeoutError("model timed out")
+        return good(messages, config)
+
+    @asynccontextmanager
+    async def graph():
+        yield build_graph(
+            RunnableLambda(planner), checkpointer=InMemorySaver(), critic=None
+        )
+
+    with TestClient(create_app(graph)) as client:
+        first = _events(
+            client.post("/api/v1/chat", json={"message": "q1", "session_id": "s"}).text
+        )
+        second = _events(
+            client.post("/api/v1/chat", json={"message": "q2", "session_id": "s"}).text
+        )
+
+    assert first[-1][0] == "error"
+    assert second[-1][0] == "done"
+
+
+def test_a_failed_repair_still_sends_the_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    def broken(ticker):
+        raise RuntimeError("down")
+
+    async def repair_fails(graph, config):
+        raise ConnectionError("redis down too")
+
+    monkeypatch.setattr(market_data, "get_live_market_data", broken)
+    monkeypatch.setattr(streaming, "repair_thread", repair_fails)
+    events = _ask(_strict_client(StrictPlanner()))
+    assert events[-1][0] == "error"
