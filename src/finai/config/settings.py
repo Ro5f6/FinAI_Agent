@@ -7,10 +7,11 @@ Field names are uppercase so they map one-to-one onto the variable names in
 ``.env.example`` and read the same way at the call site (``settings.QDRANT_URL``).
 """
 
+import re
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -24,6 +25,9 @@ class Settings(BaseSettings):
         # database). Without this, BaseSettings' default extra="forbid" would
         # reject them before those tasks add the fields.
         extra="ignore",
+        # A validation error would otherwise quote the raw input: every API key
+        # in a malformed API_KEYS would land in the crash log (found by test).
+        hide_input_in_errors=True,
     )
 
     # --- LLM provider ---
@@ -158,6 +162,14 @@ class Settings(BaseSettings):
     )
 
     # --- API (2.1) ---
+    API_KEYS: SecretStr | None = Field(
+        default=None,
+        description=(
+            "Who may call the chat endpoint: comma-separated user_id:key pairs, "
+            "e.g. 'demo:4f9c...,alice:8e21...'. The X-API-Key header is looked up "
+            "here and gives the user_id (2.1.9). Unset: every chat request gets 401."
+        ),
+    )
     CHAT_MAX_MESSAGE_CHARS: int = Field(
         default=2_000,
         ge=1,
@@ -247,3 +259,44 @@ class Settings(BaseSettings):
             "https://aws.api.smith.langchain.com, or every request gets 403."
         ),
     )
+
+    @field_validator("API_KEYS")
+    @classmethod
+    def _api_keys_well_formed(cls, value: SecretStr | None) -> SecretStr | None:
+        """Fail at startup on a malformed key list (see ``api_key_users``)."""
+        if value is not None:
+            api_key_users(value)
+        return value
+
+
+MIN_API_KEY_CHARS = 16
+_USER_ID = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
+
+
+def api_key_users(api_keys: SecretStr | None) -> dict[str, str]:
+    """``API_KEYS`` as key -> user_id.
+
+    Raises:
+        ValueError: a pair isn't ``user_id:key``, a user ID has characters
+            other than letters, digits, ``_ . -``, a key is shorter than
+            ``MIN_API_KEY_CHARS``, or a user or key appears twice. The message
+            never contains a key.
+    """
+    if api_keys is None or not api_keys.get_secret_value().strip():
+        return {}
+    users: dict[str, str] = {}
+    for position, pair in enumerate(api_keys.get_secret_value().split(","), 1):
+        user_id, sep, key = pair.strip().partition(":")
+        if not sep or not _USER_ID.match(user_id):
+            raise ValueError(f"API_KEYS entry {position}: expected user_id:key")
+        if len(key) < MIN_API_KEY_CHARS:
+            raise ValueError(
+                f"API_KEYS entry {position} ({user_id}): key shorter than "
+                f"{MIN_API_KEY_CHARS} characters"
+            )
+        if key in users or user_id in users.values():
+            raise ValueError(
+                f"API_KEYS entry {position} ({user_id}): duplicate user or key"
+            )
+        users[key] = user_id
+    return users

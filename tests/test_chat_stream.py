@@ -23,6 +23,22 @@ RIGHT = "NVDA is at $212.21, down 4.4% today. [Finnhub quote, 2026-10-22 20:00 U
 WRONG = "NVDA is at $221.21."
 
 
+TEST_KEY = "test-key-0123456789abcdef"
+AUTH = {"X-API-Key": TEST_KEY}
+
+
+@pytest.fixture(autouse=True)
+def api_keys(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The demo user's key, sent by every client below (2.1.9)."""
+    from pydantic import SecretStr
+
+    from finai.config import settings
+
+    monkeypatch.setattr(
+        settings, "API_KEYS", SecretStr(f"demo:{TEST_KEY},bob:bob-key-0123456789abcd")
+    )
+
+
 @pytest.fixture(autouse=True)
 def quote(monkeypatch: pytest.MonkeyPatch) -> None:
     data = market_data.MarketData(
@@ -60,7 +76,7 @@ def _client(wrong_drafts: int = 0) -> TestClient:
             RunnableLambda(planner), checkpointer=InMemorySaver(), critic=None
         )
 
-    return TestClient(create_app(graph))
+    return TestClient(create_app(graph), headers=AUTH)
 
 
 def _events(body: str) -> list[tuple[str, dict]]:
@@ -218,7 +234,7 @@ def _strict_client(planner: StrictPlanner) -> TestClient:
             RunnableLambda(planner), checkpointer=InMemorySaver(), critic=None
         )
 
-    return TestClient(create_app(graph))
+    return TestClient(create_app(graph), headers=AUTH)
 
 
 def test_a_failure_mid_stream_ends_with_an_error_event(
@@ -296,7 +312,7 @@ def test_a_model_failure_before_any_tool_also_reports_and_recovers() -> None:
             RunnableLambda(planner), checkpointer=InMemorySaver(), critic=None
         )
 
-    with TestClient(create_app(graph)) as client:
+    with TestClient(create_app(graph), headers=AUTH) as client:
         first = _events(
             client.post("/api/v1/chat", json={"message": "q1", "session_id": "s"}).text
         )
@@ -319,3 +335,67 @@ def test_a_failed_repair_still_sends_the_error(monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setattr(streaming, "repair_thread", repair_fails)
     events = _ask(_strict_client(StrictPlanner()))
     assert events[-1][0] == "error"
+
+
+# --- API-key authentication (2.1.9) ---------------------------------------------------
+
+
+def _without_key() -> TestClient:
+    client = _client()
+    del client.headers["X-API-Key"]
+    return client
+
+
+def test_a_missing_key_is_401_with_a_challenge() -> None:
+    with _without_key() as client:
+        no_header = client.post("/api/v1/chat", json={"message": "q"})
+        empty = client.post(
+            "/api/v1/chat", json={"message": "q"}, headers={"X-API-Key": ""}
+        )
+    for r in (no_header, empty):
+        assert r.status_code == 401
+        assert r.headers["www-authenticate"] == "APIKey"
+
+
+def test_a_wrong_key_is_401() -> None:
+    with _client() as client:
+        response = client.post(
+            "/api/v1/chat",
+            json={"message": "q"},
+            headers={"X-API-Key": "nope-0123456789abcdef"},
+        )
+    assert (response.status_code, response.json()) == (
+        401,
+        {"detail": "Invalid API key"},
+    )
+
+
+def test_the_key_decides_the_user() -> None:
+    """Bob's key makes Bob the user: his thread, whatever the session ID."""
+    with _client() as client:
+        client.post(
+            "/api/v1/chat",
+            json={"message": "q", "session_id": "s"},
+            headers={"X-API-Key": "bob-key-0123456789abcd"},
+        )
+        graph = client.app.state.graph
+        bob = graph.get_state({"configurable": {"thread_id": "bob:s"}}).values
+        demo = graph.get_state({"configurable": {"thread_id": "demo:s"}}).values
+    assert bob.get("user_id") == "bob"
+    assert not demo  # nothing was stored under the demo user
+
+
+def test_with_no_keys_configured_every_request_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from finai.config import settings
+
+    monkeypatch.setattr(settings, "API_KEYS", None)
+    with _client() as client:
+        response = client.post("/api/v1/chat", json={"message": "q"})
+    assert response.status_code == 401
+
+
+def test_probes_still_need_no_key() -> None:
+    with _without_key() as client:
+        assert client.get("/healthz").status_code == 200

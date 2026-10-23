@@ -133,3 +133,41 @@ def test_chat_message_limit_default(clean_env: pytest.MonkeyPatch) -> None:
     for name, value in REQUIRED_ENV.items():
         clean_env.setenv(name, value)
     assert Settings(_env_file=None).CHAT_MAX_MESSAGE_CHARS == 2000
+
+
+# --- API_KEYS (2.1.9) -----------------------------------------------------------------
+
+from pydantic import SecretStr
+
+from finai.config.settings import api_key_users
+
+
+def test_api_keys_map_keys_to_users() -> None:
+    keys = SecretStr("demo:0123456789abcdef, alice:fedcba9876543210-x")
+    assert api_key_users(keys) == {
+        "0123456789abcdef": "demo",
+        "fedcba9876543210-x": "alice",
+    }
+    assert api_key_users(None) == {}
+    assert api_key_users(SecretStr("  ")) == {}
+
+
+@pytest.mark.parametrize(
+    ("value", "problem"),
+    [
+        ("demo0123456789abcdef", "expected user_id:key"),
+        ("demo:short", "shorter than 16"),
+        ("de mo:0123456789abcdef", "expected user_id:key"),
+        ("demo:0123456789abcdef,demo:fedcba9876543210", "duplicate"),
+        ("a:0123456789abcdef,b:0123456789abcdef", "duplicate"),
+    ],
+)
+def test_bad_api_keys_fail_at_startup_without_revealing_a_key(
+    clean_env: pytest.MonkeyPatch, value: str, problem: str
+) -> None:
+    for name, required in REQUIRED_ENV.items():
+        clean_env.setenv(name, required)
+    clean_env.setenv("API_KEYS", value)
+    with pytest.raises(ValueError, match=problem) as error:
+        Settings(_env_file=None)
+    assert "0123456789abcdef" not in str(error.value)
