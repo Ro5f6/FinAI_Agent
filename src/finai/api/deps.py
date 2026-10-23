@@ -12,3 +12,9 @@ from langgraph.graph.state import CompiledStateGraph
 def get_graph(request: Request) -> CompiledStateGraph:
     """The agent graph the app built at startup."""
     return request.app.state.graph
+
+
+def current_user() -> str:
+    """The authenticated user. Until API-key auth (2.1.9) every caller is
+    the demo user; routes depend on this, so only this function changes."""
+    return "demo"

@@ -19,7 +19,7 @@ from sse_starlette.event import JSONServerSentEvent
 
 from finai.config import settings
 
-EventType = Literal["token", "tool_start", "tool_end", "error", "done"]
+EventType = Literal["status", "tool_start", "tool_end", "token", "error", "done"]
 
 SessionId = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{1,64}$")]
 
@@ -49,9 +49,10 @@ class StreamEvent(BaseModel):
     """One event of the answer stream.
 
     ``type`` is the SSE event name; ``data`` its JSON payload. Shapes, as the
-    chat endpoint sends them (2.1.6): ``token`` {"text"}, ``tool_start``
-    {"tool", "args", "call_id"}, ``tool_end`` {"tool", "call_id", "status"},
-    ``error`` {"message"}, ``done`` {"session_id"}.
+    chat endpoint sends them (2.1.6): ``status`` {"stage": "verifying" |
+    "revising"}, ``tool_start`` {"tool", "args", "call_id"}, ``tool_end``
+    {"tool", "call_id", "status", "summary"}, ``token`` {"text"}, ``error``
+    {"message"}, ``done`` {"session_id", "verdict", "revisions"}.
     """
 
     model_config = ConfigDict(frozen=True)
