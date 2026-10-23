@@ -12,7 +12,7 @@ same handler closes at shutdown. Tests pass their own ``graph_factory``, so
 they run a scripted graph without Redis or a model.
 """
 
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncGenerator, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 
 from fastapi import FastAPI
@@ -25,7 +25,7 @@ GraphFactory = Callable[[], AbstractAsyncContextManager[CompiledStateGraph]]
 
 
 @asynccontextmanager
-async def agent_graph() -> AsyncIterator[CompiledStateGraph]:
+async def agent_graph() -> AsyncGenerator[CompiledStateGraph]:
     """The real agent: Claude planner, Haiku critic, conversations in Redis."""
     from finai.agent.graph import build_graph
     from finai.agent.memory import async_redis_checkpointer
@@ -38,7 +38,7 @@ def create_app(graph_factory: GraphFactory = agent_graph) -> FastAPI:
     """A new application with every router included."""
 
     @asynccontextmanager
-    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         async with graph_factory() as graph:
             app.state.graph = graph
             yield

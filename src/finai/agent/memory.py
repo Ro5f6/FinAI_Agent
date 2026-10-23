@@ -22,7 +22,7 @@ Verified against langgraph-checkpoint-redis 0.5.2 on the compose Redis 8
   history is kept while the agent is being built, for ``get_state_history``.
 """
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from functools import lru_cache
 
@@ -46,7 +46,7 @@ def redis_checkpointer() -> RedisSaver:
 
 
 @asynccontextmanager
-async def async_redis_checkpointer() -> AsyncIterator[AsyncRedisSaver]:
+async def async_redis_checkpointer() -> AsyncGenerator[AsyncRedisSaver]:
     """The async saver for the API, with the same TTL; closed on exit."""
     async with AsyncRedisSaver.from_conn_string(
         settings.REDIS_URL, ttl=ttl_config()
