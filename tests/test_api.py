@@ -1,32 +1,55 @@
 """Tests for the HTTP API."""
 
-from fastapi import FastAPI
+from typing import Annotated
+
+import pytest
+from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 
 from finai.agent.session import app_version
+from finai.api.deps import get_graph
 from finai.api.main import app, create_app
+from finai.api.schemas import ChatRequest, StreamEvent
+from finai.config import settings
+
+
+class _ScriptedGraph:
+    """A graph factory for tests: no Redis, no model; counts what it does."""
+
+    def __init__(self) -> None:
+        self.built = 0
+        self.closed = 0
+        self.graph = object()
+
+    def __call__(self):
+        from contextlib import asynccontextmanager
+
+        @asynccontextmanager
+        async def factory():
+            self.built += 1
+            try:
+                yield self.graph
+            finally:
+                self.closed += 1
+
+        return factory()
 
 
 def test_the_app_assembles_with_the_chat_router() -> None:
-    created = create_app()
+    created = create_app(_ScriptedGraph())
     assert isinstance(created, FastAPI)
     assert created.version == app_version()
     assert isinstance(app, FastAPI)
 
 
 def test_the_openapi_schema_is_served() -> None:
-    response = TestClient(create_app()).get("/openapi.json")
+    response = TestClient(create_app(_ScriptedGraph())).get("/openapi.json")
     assert response.status_code == 200
     assert response.json()["info"]["title"] == "FinAI-Agent"
 
 
 # --- schemas (2.1.3) ------------------------------------------------------------
-
-import pytest
-from pydantic import ValidationError
-
-from finai.api.schemas import ChatRequest, StreamEvent
-from finai.config import settings
 
 
 def test_a_request_needs_only_a_message() -> None:
@@ -90,3 +113,25 @@ def test_text_with_newlines_stays_on_one_data_line() -> None:
 def test_unknown_event_types_are_rejected() -> None:
     with pytest.raises(ValidationError):
         StreamEvent(type="debug", data={})
+
+
+# --- the graph, built once at startup (2.1.4) -------------------------------------
+
+
+def test_the_graph_is_built_once_and_shared_by_every_request() -> None:
+    graphs = _ScriptedGraph()
+    app = create_app(graphs)
+    seen = []
+
+    @app.get("/probe")
+    def probe(graph: Annotated[object, Depends(get_graph)]) -> dict:
+        seen.append(graph)
+        return {}
+
+    with TestClient(app) as client:  # runs the lifespan
+        assert graphs.built == 1
+        for _ in range(3):
+            assert client.get("/probe").status_code == 200
+        assert graphs.closed == 0  # open while serving
+    assert seen == [graphs.graph] * 3
+    assert (graphs.built, graphs.closed) == (1, 1)  # closed at shutdown

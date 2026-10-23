@@ -13,14 +13,21 @@ Verified against langgraph-checkpoint-redis 0.5.2 on the compose Redis 8
 * ``ttl={"default_ttl": N}`` is in **minutes** (the library multiplies by 60).
   Every saver must get it: keys written by a saver without it never expire.
   That's why savers are only made here, from one setting.
+* The API runs the graph with ``ainvoke``/``astream``, which need the async
+  ``AsyncRedisSaver``: the sync ``RedisSaver`` raises ``NotImplementedError``
+  there. Entering ``AsyncRedisSaver.from_conn_string`` creates the indexes
+  (``__aenter__`` calls ``asetup``); leaving it closes the connection.
 * ``RedisSaver`` keeps every step (23 keys, ~36 KB for two short turns);
   ``ShallowRedisSaver`` keeps only the latest state (14 keys, ~18 KB). The full
   history is kept while the agent is being built, for ``get_state_history``.
 """
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from functools import lru_cache
 
 from langgraph.checkpoint.redis import RedisSaver
+from langgraph.checkpoint.redis.aio import AsyncRedisSaver
 
 from finai.config import settings
 
@@ -36,3 +43,12 @@ def redis_checkpointer() -> RedisSaver:
     saver = RedisSaver(redis_url=settings.REDIS_URL, ttl=ttl_config())
     saver.setup()
     return saver
+
+
+@asynccontextmanager
+async def async_redis_checkpointer() -> AsyncIterator[AsyncRedisSaver]:
+    """The async saver for the API, with the same TTL; closed on exit."""
+    async with AsyncRedisSaver.from_conn_string(
+        settings.REDIS_URL, ttl=ttl_config()
+    ) as saver:
+        yield saver
